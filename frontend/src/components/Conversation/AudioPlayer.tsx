@@ -308,28 +308,12 @@ export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPla
             0.5x
           </button>
           <button
-            onClick={() => handleSpeedChange(0.8)}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
-              Math.abs(speed - 0.8) < 0.01 ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'
-            }`}
-          >
-            0.8x
-          </button>
-          <button
             onClick={() => handleSpeedChange(1.0)}
             className={`px-2 py-1 text-xs rounded transition-colors ${
               Math.abs(speed - 1.0) < 0.01 ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'
             }`}
           >
             1x
-          </button>
-          <button
-            onClick={() => handleSpeedChange(1.5)}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
-              Math.abs(speed - 1.5) < 0.01 ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'
-            }`}
-          >
-            1.5x
           </button>
           <button
             onClick={() => handleSpeedChange(2.0)}
