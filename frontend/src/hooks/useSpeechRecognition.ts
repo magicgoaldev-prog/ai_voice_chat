@@ -19,6 +19,8 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [finalTranscript, setFinalTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldRestartRef = useRef<boolean>(true); // Track if we should auto-restart
@@ -55,33 +57,35 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       // Reset no-speech error count when we get results
       noSpeechErrorCountRef.current = 0;
       
-      let interimTranscript = '';
-      let finalTranscript = '';
+      let interimAll = '';
+      let finalAll = '';
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+      // Build transcript from ALL results to avoid losing earlier segments.
+      for (let i = 0; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
+          finalAll += t + ' ';
         } else {
-          interimTranscript += transcript;
+          interimAll += t;
         }
       }
 
-      const fullTranscript = finalTranscript || interimTranscript;
-      const trimmedTranscript = fullTranscript.trim();
+      const fullTranscript = `${finalAll}${interimAll}`.trim();
       
       console.log('✅ Speech recognition result:', {
-        interim: interimTranscript,
-        final: finalTranscript,
-        full: trimmedTranscript,
+        interim: interimAll,
+        final: finalAll,
+        full: fullTranscript,
         resultIndex: event.resultIndex,
         resultsLength: event.results.length
       });
       
-      setTranscript(trimmedTranscript);
+      setTranscript(fullTranscript);
+      setFinalTranscript(finalAll.trim());
+      setInterimTranscript(interimAll.trim());
 
       if (onResult) {
-        onResult(trimmedTranscript, finalTranscript.length > 0);
+        onResult(fullTranscript, finalAll.length > 0);
       }
     };
 
@@ -266,21 +270,31 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
   const stopListening = () => {
     shouldRestartRef.current = false; // Prevent auto-restart
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.warn('Failed to stop speech recognition:', e);
+      }
     }
   };
 
   const abort = () => {
     shouldRestartRef.current = false; // Prevent auto-restart
     if (recognitionRef.current) {
-      recognitionRef.current.abort();
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {
+        console.warn('Failed to abort speech recognition:', e);
+      }
     }
   };
 
   return {
     isListening,
     transcript,
+    finalTranscript,
+    interimTranscript,
     error,
     startListening,
     stopListening,

@@ -1,4 +1,4 @@
-import { correctText, generateResponse } from './llmService';
+import { correctText, generateResponse, generateSuggestedReplies } from './llmService';
 
 // Process text message (STT is now handled on frontend with Web Speech API)
 export async function processTextMessage(
@@ -6,21 +6,28 @@ export async function processTextMessage(
   sessionId?: string,
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
 ) {
-  // Step 1: Text Correction
-  const { correctedText, explanation } = await correctText(text);
-
-  // Step 2: Generate AI Response with conversation history
+  // Generate AI Response with conversation history
   const aiResponseText = await generateResponse(text, sessionId, conversationHistory || []);
 
-  // Step 3: TTS is now handled on frontend with Web Speech API
-  // Return empty string for aiResponseAudio (frontend will handle TTS)
+  // TTS is handled on frontend with Web Speech API
   return {
     transcription: text,
-    correctedText,
-    explanation,
     aiResponseText,
-    aiResponseAudio: '', // Frontend will use Web Speech API TTS
   };
+}
+
+// On-demand feedback (correction + explanation)
+export async function processFeedback(text: string) {
+  return await correctText(text);
+}
+
+// Suggested replies for last AI message
+export async function processSuggestedReplies(
+  lastAiText: string,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+) {
+  const suggestions = await generateSuggestedReplies(lastAiText, conversationHistory || []);
+  return { suggestions };
 }
 
 // Keep for backward compatibility (deprecated)

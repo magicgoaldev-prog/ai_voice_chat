@@ -34,15 +34,22 @@ export interface Message {
   aiResponseText?: string;
   audioUrl?: string; // For AI messages
   userAudioUrl?: string; // For user recorded audio
+  isSuggestedReply?: boolean; // true if user sent a suggested reply
   createdAt: string;
 }
 
 export interface ConversationResponse {
-  transcription: string;
+  transcription?: string;
+  aiResponseText: string;
+}
+
+export interface FeedbackResponse {
   correctedText: string;
   explanation: string;
-  aiResponseText: string;
-  aiResponseAudio?: string; // base64 or URL (optional, TTS handled by frontend)
+}
+
+export interface SuggestionsResponse {
+  suggestions: string[];
 }
 
 export interface TranslationResponse {

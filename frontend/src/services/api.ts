@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ConversationResponse, TranslationResponse } from '../types';
+import { ConversationResponse, FeedbackResponse, SuggestionsResponse, TranslationResponse } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -42,6 +42,38 @@ export async function sendTextMessage(
       throw error;
     }
     throw new Error('An unknown error occurred.');
+  }
+}
+
+export async function getFeedback(text: string): Promise<FeedbackResponse> {
+  try {
+    const response = await axios.post<FeedbackResponse>(`${API_BASE_URL}/conversation/feedback`, { text });
+    return response.data;
+  } catch (error: any) {
+    if (error.response) {
+      const errorMessage = error.response.data?.error || 'Server error occurred.';
+      throw new Error(errorMessage);
+    }
+    throw error;
+  }
+}
+
+export async function getSuggestions(
+  lastAiText: string,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<SuggestionsResponse> {
+  try {
+    const response = await axios.post<SuggestionsResponse>(`${API_BASE_URL}/conversation/suggestions`, {
+      lastAiText,
+      conversationHistory: conversationHistory || [],
+    });
+    return response.data;
+  } catch (error: any) {
+    if (error.response) {
+      const errorMessage = error.response.data?.error || 'Server error occurred.';
+      throw new Error(errorMessage);
+    }
+    throw error;
   }
 }
 

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import ConversationView from './ConversationView';
 import { Conversation, Message } from '../../types';
+import { getFeedback } from '../../services/api';
 import {
   getConversations,
   createNewConversation,
@@ -19,6 +20,7 @@ export default function ConversationScreen() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [feedbackLoadingIds, setFeedbackLoadingIds] = useState<Set<string>>(new Set());
   const [isMobileView, setIsMobileView] = useState(false);
   const [showConversationList, setShowConversationList] = useState(true);
 
@@ -139,6 +141,45 @@ export default function ConversationScreen() {
     }
   };
 
+  const handleRequestFeedback = async (messageId: string) => {
+    const target = messages.find((m) => m.id === messageId);
+    if (!target || target.type !== 'user') return;
+    if (!target.transcription || !target.transcription.trim()) return;
+    if (target.isSuggestedReply) return;
+    if (target.correctedText) return;
+
+    setFeedbackLoadingIds((prev) => new Set(prev).add(messageId));
+    try {
+      const result = await getFeedback(target.transcription);
+      const updatedMessage: Message = {
+        ...target,
+        correctedText: result.correctedText,
+        explanation: result.explanation,
+      };
+
+      // Update UI immediately
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? updatedMessage : m)));
+
+      // Persist in background
+      if (currentConversationId) {
+        setTimeout(() => {
+          saveMessage(currentConversationId, updatedMessage).catch((error) => {
+            console.error('Error saving feedback message:', error);
+          });
+        }, 0);
+      }
+    } catch (error) {
+      console.error('Feedback error:', error);
+      alert('Failed to get feedback. Please try again.');
+    } finally {
+      setFeedbackLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+    }
+  };
+
   // Mobile: Show list or conversation
   if (isMobileView) {
     if (showConversationList) {
@@ -196,6 +237,8 @@ export default function ConversationScreen() {
                 conversationId={currentConversationId}
                 onMessageSent={handleNewMessage}
                 onProcessingChange={setIsProcessing}
+                onRequestFeedback={handleRequestFeedback}
+                feedbackLoadingIds={feedbackLoadingIds}
               />
             </div>
           )}
@@ -249,6 +292,10 @@ export default function ConversationScreen() {
                 conversationId={currentConversationId}
                 onMessageSent={handleNewMessage}
                 onProcessingChange={setIsProcessing}
+                onRequestFeedback={handleRequestFeedback}
+                feedbackLoadingIds={feedbackLoadingIds}
+                onRequestFeedback={handleRequestFeedback}
+                feedbackLoadingIds={feedbackLoadingIds}
               />
             </div>
           </>

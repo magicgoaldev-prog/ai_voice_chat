@@ -1,5 +1,5 @@
 import express from 'express';
-import { processTextMessage } from '../services/conversationService';
+import { processFeedback, processSuggestedReplies, processTextMessage } from '../services/conversationService';
 
 const router = express.Router();
 
@@ -42,6 +42,38 @@ router.post('/message', async (req, res) => {
       error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
     });
+  }
+});
+
+router.post('/feedback', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Text is required and cannot be empty.' });
+    }
+
+    const result = await processFeedback(text.trim());
+    res.json(result);
+  } catch (error: any) {
+    console.error('Error processing feedback:', error);
+    const errorMessage = error?.message || 'Failed to process feedback.';
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+router.post('/suggestions', async (req, res) => {
+  try {
+    const { lastAiText, conversationHistory } = req.body;
+    if (!lastAiText || typeof lastAiText !== 'string' || lastAiText.trim().length === 0) {
+      return res.status(400).json({ error: 'lastAiText is required and cannot be empty.' });
+    }
+
+    const result = await processSuggestedReplies(lastAiText.trim(), conversationHistory || []);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Error generating suggestions:', error);
+    const errorMessage = error?.message || 'Failed to generate suggestions.';
+    res.status(500).json({ error: errorMessage });
   }
 });
 

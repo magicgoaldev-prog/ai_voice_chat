@@ -2,39 +2,18 @@
 // Can be enhanced with OpenAI API if available
 
 function simpleTextCorrection(text: string): { correctedText: string; explanation: string } {
-  let corrected = text;
-  const explanations: string[] = [];
-
-  // Common corrections
-  // Fix "i" to "I"
-  corrected = corrected.replace(/\bi\b/g, 'I');
-  if (text !== corrected) {
-    explanations.push('Capitalized "I" when referring to yourself.');
-  }
-
-  // Fix double spaces
-  const originalCorrected = corrected;
-  corrected = corrected.replace(/\s+/g, ' ');
-  if (originalCorrected !== corrected) {
-    explanations.push('Removed extra spaces.');
-  }
-
-  // Fix missing punctuation at the end
-  if (corrected.length > 0 && !/[.!?]$/.test(corrected.trim())) {
-    corrected = corrected.trim() + '.';
-    explanations.push('Added period at the end.');
-  }
-
-  // Capitalize first letter
-  if (corrected.length > 0) {
-    corrected = corrected.charAt(0).toUpperCase() + corrected.slice(1);
+  // Conservative fallback: don't nitpick punctuation/capitalization.
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed !== text.trim()) {
+    return {
+      correctedText: collapsed,
+      explanation: 'Removed extra spaces.',
+    };
   }
 
   return {
-    correctedText: corrected,
-    explanation: explanations.length > 0 
-      ? explanations.join(' ') 
-      : 'No obvious errors found. Great job!',
+    correctedText: text,
+    explanation: 'Looks natural. No major grammar issues found.',
   };
 }
 
@@ -67,14 +46,20 @@ export async function correctText(
       const OpenAI = require('openai');
       const openai = new OpenAI({ apiKey: openaiApiKey });
 
-      const prompt = `Correct the following English sentence and explain the errors in a simple, educational way:
+      const prompt = `You will evaluate the user's English.
 
+IMPORTANT:
+- Do NOT focus on punctuation, capitalization, or minor style.
+- Only correct if the sentence is clearly ungrammatical OR significantly unnatural compared to native speakers.
+- If it's already natural enough, keep it unchanged and explain briefly that it's fine.
+
+User text:
 "${text}"
 
 Format your response as JSON:
 {
   "corrected": "[corrected sentence]",
-  "explanation": "[brief explanation of errors]"
+  "explanation": "[brief explanation of changes or why it's fine]"
 }`;
 
       const response = await openai.chat.completions.create({
@@ -82,7 +67,11 @@ Format your response as JSON:
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful English teacher. Correct grammar mistakes and explain them clearly.',
+            content:
+              'You are a strict but friendly English coach. ' +
+              'Only correct major grammar or strongly unnatural phrasing. ' +
+              'Ignore punctuation/capitalization unless it changes meaning. ' +
+              'If no meaningful correction is needed, keep the original text and say it sounds natural.',
           },
           {
             role: 'user',
@@ -244,4 +233,85 @@ export async function generateResponse(
   
   // Default response
   return "That's interesting! Can you tell me more about that?";
+}
+
+export async function generateSuggestedReplies(
+  lastAiText: string,
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+): Promise<string[]> {
+  const openaiApiKey = process.env.OPENAI_API_KEY;
+
+  if (openaiApiKey) {
+    try {
+      const OpenAI = require('openai');
+      const openai = new OpenAI({ apiKey: openaiApiKey });
+
+      const systemPrompt =
+        'You generate 3 short, natural, varied reply suggestions for the USER. ' +
+        'Keep them conversational and easy to speak. Return JSON only.';
+
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt },
+      ];
+
+      // Add a small amount of context (last 6 turns max)
+      conversationHistory.slice(-6).forEach((m) => {
+        messages.push({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content: m.content,
+        });
+      });
+
+      messages.push({
+        role: 'assistant',
+        content: lastAiText,
+      });
+
+      messages.push({
+        role: 'user',
+        content:
+          'Suggest 3 possible user replies to the assistant message above. ' +
+          'Format as JSON: {"suggestions":["...","...","..."]}',
+      });
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.8,
+        max_tokens: 180,
+        response_format: { type: 'json_object' },
+      });
+
+      const raw = response.choices[0].message.content || '{}';
+      const parsed = JSON.parse(raw);
+      const suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+
+      return suggestions
+        .map((s: any) => (typeof s === 'string' ? s.trim() : ''))
+        .filter((s: string) => s.length > 0)
+        .slice(0, 3);
+    } catch (error: any) {
+      console.error('❌ OpenAI API error while generating suggestions, using fallback:', error?.message || error);
+    }
+  }
+
+  // Fallback suggestions (rule-based)
+  const base = lastAiText.trim();
+  const generic = [
+    "That makes sense. Can you give me an example?",
+    "Thanks! Could you ask me a follow-up question?",
+    "I see. Here's my answer: ",
+  ];
+
+  // If assistant asked a question, provide direct reply styles
+  const looksLikeQuestion = /[?]$/.test(base) || /\b(what|why|how|when|where|which)\b/i.test(base);
+  if (looksLikeQuestion) {
+    return [
+      "Good question. I think ...",
+      "I'm not sure yet, but maybe ...",
+      "Let me explain: ...",
+    ];
+  }
+
+  return generic;
 }

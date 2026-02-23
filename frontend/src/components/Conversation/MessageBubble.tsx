@@ -38,17 +38,20 @@ function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
   return (
     <button
       onClick={togglePlay}
-      className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white flex items-center justify-center flex-shrink-0 transition-all"
+      className="w-9 h-9 rounded-full bg-white/60 hover:bg-white/80 border border-gray-200/60 text-blue-600 flex items-center justify-center flex-shrink-0 transition-all shadow-sm"
       aria-label={isPlaying ? 'Pause recording' : 'Play recording'}
     >
       {isPlaying ? (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="6" y="4" width="4" height="16" />
-          <rect x="14" y="4" width="4" height="16" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="5" width="4" height="14" rx="1" />
+          <rect x="14" y="5" width="4" height="14" rx="1" />
         </svg>
       ) : (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M8 5v14l11-7z" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          {/* Speaker/audio icon */}
+          <path d="M3 10v4h3l4 3V7L6 10H3z" />
+          <path d="M14.5 8.5a4.5 4.5 0 010 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M16.8 6.2a8 8 0 010 11.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
       )}
     </button>
@@ -58,13 +61,29 @@ function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
 interface MessageBubbleProps {
   message: Message;
   isNewMessage?: boolean; // Indicates if this is a newly added message
+  onRequestFeedback: (messageId: string) => void | Promise<void>;
+  isFeedbackLoading: boolean;
 }
 
-export default function MessageBubble({ message, isNewMessage = false }: MessageBubbleProps) {
+export default function MessageBubble({
+  message,
+  isNewMessage = false,
+  onRequestFeedback,
+  isFeedbackLoading,
+}: MessageBubbleProps) {
   const [showExplanation, setShowExplanation] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+
+  // Reset UI toggles when message changes
+  useEffect(() => {
+    setShowExplanation(false);
+    setShowFeedback(false);
+    setShowTranslation(false);
+    setTranslatedText(null);
+  }, [message.id]);
   
   // Debug logging
   useEffect(() => {
@@ -80,25 +99,52 @@ export default function MessageBubble({ message, isNewMessage = false }: Message
   if (message.type === 'user') {
     return (
       <div className="flex flex-col items-end space-y-2">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-md">
-          <div className="flex items-center gap-2">
-            {message.userAudioUrl && (
-              <UserAudioPlayer audioUrl={message.userAudioUrl} />
+        <div className="bg-blue-100 rounded-2xl rounded-tr-none px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm border border-blue-200/60">
+          {message.transcription ? (
+            <p className="text-sm text-gray-900 break-words whitespace-pre-wrap leading-relaxed">
+              {message.transcription}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500 italic">(No transcription available)</p>
+          )}
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            {/* Feedback button shown for non-suggested replies */}
+            {!message.isSuggestedReply && (
+              <button
+                onClick={async () => {
+                  if (showFeedback) {
+                    setShowFeedback(false);
+                    return;
+                  }
+
+                  // Show feedback; if we don't have it yet, fetch on demand
+                  setShowFeedback(true);
+                  if (!message.correctedText) {
+                    await Promise.resolve(onRequestFeedback(message.id));
+                  }
+                }}
+                disabled={isFeedbackLoading}
+                className="text-sm font-semibold text-blue-700 hover:text-blue-800 disabled:text-gray-400 flex items-center gap-1"
+              >
+                {showFeedback ? 'Hide Feedback' : (isFeedbackLoading ? 'Getting feedback...' : 'Get Feedback')}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  {/* chevron (keep original arrow style) */}
+                  <path d="M7 10l5 5 5-5z" />
+                </svg>
+              </button>
             )}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-blue-100 mb-1">You said:</p>
-              {message.transcription && (
-                <p className="text-sm text-white break-words whitespace-pre-wrap leading-relaxed">
-                  {message.transcription}
-                </p>
-              )}
-              {!message.transcription && (
-                <p className="text-xs text-blue-100 italic">(No transcription available)</p>
-              )}
-            </div>
+
+            {/* Voice icon only if userAudioUrl exists */}
+            {message.userAudioUrl ? (
+              <UserAudioPlayer audioUrl={message.userAudioUrl} />
+            ) : (
+              <div />
+            )}
           </div>
         </div>
-        {message.correctedText && message.correctedText !== message.transcription && (
+
+        {showFeedback && message.correctedText && (
           <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-2xl px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm">
             <p className="text-sm font-semibold text-emerald-800 mb-1">
               ✨ Corrected:

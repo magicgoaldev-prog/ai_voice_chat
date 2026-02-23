@@ -5,9 +5,11 @@ import { Message } from '../../types';
 interface ChatAreaProps {
   messages: Message[];
   isProcessing: boolean;
+  onRequestFeedback: (messageId: string) => void | Promise<void>;
+  feedbackLoadingIds: Set<string>;
 }
 
-export default function ChatArea({ messages, isProcessing }: ChatAreaProps) {
+export default function ChatArea({ messages, isProcessing, onRequestFeedback, feedbackLoadingIds }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
@@ -86,7 +88,7 @@ export default function ChatArea({ messages, isProcessing }: ChatAreaProps) {
             </svg>
           </div>
           <p className="text-lg md:text-xl font-semibold text-gray-700 mb-2">Start practicing!</p>
-          <p className="text-sm md:text-base text-gray-500">Hold the microphone button to record your message</p>
+          <p className="text-sm md:text-base text-gray-500">Tap the microphone to start, tap again to send</p>
         </div>
       )}
       {messages.map((message, index) => {
@@ -98,6 +100,8 @@ export default function ChatArea({ messages, isProcessing }: ChatAreaProps) {
             key={message.id} 
             message={message} 
             isNewMessage={isNewMessage}
+            onRequestFeedback={onRequestFeedback}
+            isFeedbackLoading={feedbackLoadingIds.has(message.id)}
           />
         );
       })}
