@@ -3,13 +3,14 @@ import { correctText, generateResponse } from './llmService';
 // Process text message (STT is now handled on frontend with Web Speech API)
 export async function processTextMessage(
   text: string,
-  sessionId?: string
+  sessionId?: string,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
 ) {
   // Step 1: Text Correction
   const { correctedText, explanation } = await correctText(text);
 
-  // Step 2: Generate AI Response
-  const aiResponseText = await generateResponse(text, sessionId);
+  // Step 2: Generate AI Response with conversation history
+  const aiResponseText = await generateResponse(text, sessionId, conversationHistory || []);
 
   // Step 3: TTS is now handled on frontend with Web Speech API
   // Return empty string for aiResponseAudio (frontend will handle TTS)

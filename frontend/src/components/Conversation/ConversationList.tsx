@@ -34,14 +34,14 @@ export default function ConversationList({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-gray-200">
+    <div className="flex flex-col h-full bg-white/60 backdrop-blur-sm">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200/60">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Conversations</h2>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Conversations</h2>
           <button
             onClick={onCreateConversation}
-            className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 transition-colors"
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center hover:from-blue-600 hover:to-blue-700 shadow-md transition-all active:scale-95 text-lg font-light"
             aria-label="New conversation"
           >
             +
@@ -52,38 +52,45 @@ export default function ConversationList({
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto">
         {conversations.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">
-            <p className="mb-4">No conversations yet</p>
+          <div className="p-6 text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 mb-4">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-500">
+                <path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4ZM20 18H4V8L12 13L20 8V18ZM12 11L4 6H20L12 11Z" fill="currentColor"/>
+              </svg>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">No conversations yet</p>
             <button
               onClick={onCreateConversation}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 shadow-md transition-all font-medium text-sm"
             >
               Start New Conversation
             </button>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100/50">
             {conversations.map((conversation) => (
               <div
                 key={conversation.id}
                 onClick={() => onSelectConversation(conversation.id)}
-                className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  currentConversationId === conversation.id ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
+                className={`p-4 cursor-pointer transition-all ${
+                  currentConversationId === conversation.id 
+                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500' 
+                    : 'hover:bg-gray-50/80'
                 }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-900 truncate">
+                    <h3 className="text-sm font-semibold text-gray-900 truncate mb-1">
                       {conversation.title || 'New Conversation'}
                     </h3>
                     {conversation.lastMessage && (
-                      <p className="text-xs text-gray-500 mt-1 truncate">
+                      <p className="text-xs text-gray-600 truncate leading-relaxed">
                         {conversation.lastMessage}
                       </p>
                     )}
                   </div>
                   {conversation.lastMessageAt && (
-                    <span className="text-xs text-gray-400 ml-2 flex-shrink-0">
+                    <span className="text-xs text-gray-400 ml-2 flex-shrink-0 font-medium">
                       {formatTime(conversation.lastMessageAt)}
                     </span>
                   )}
@@ -96,7 +103,7 @@ export default function ConversationList({
                         onDeleteConversation(conversation.id);
                       }
                     }}
-                    className="mt-2 text-xs text-red-600 hover:text-red-800"
+                    className="mt-2 text-xs text-red-600 hover:text-red-700 font-medium transition-colors"
                   >
                     Delete
                   </button>

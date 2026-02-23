@@ -7,10 +7,10 @@ import {
   getConversations,
   createNewConversation,
   deleteConversation,
-  getMessages,
   saveMessage,
   getConversation,
   loadMessagesWithAudio,
+  loadMessageWithAudio,
 } from '../../utils/conversationStorage';
 
 export default function ConversationScreen() {
@@ -98,9 +98,9 @@ export default function ConversationScreen() {
     }
   };
 
-  const handleNewMessage = async (newMessage: Message) => {
+  const handleNewMessage = (newMessage: Message) => {
     if (currentConversationId) {
-      // Immediately add message to UI for instant feedback
+      // Immediately add message to UI for instant feedback (synchronous)
       setMessages((prev) => {
         // Ensure messages are sorted by createdAt to maintain order
         const updated = [...prev, newMessage];
@@ -109,29 +109,33 @@ export default function ConversationScreen() {
         );
       });
       
-      // Save message in background (don't block UI)
-      saveMessage(currentConversationId, newMessage).catch((error) => {
-        console.error('Error saving message:', error);
-      });
-      
-      // If message has audio, handle it in background
-      if (newMessage.userAudioUrl && newMessage.userAudioUrl.startsWith('blob:')) {
-        // Save audio to IndexedDB in background
-        loadMessageWithAudio(newMessage).then((loadedMessage) => {
-          // Update the message with the loaded audio URL
-          setMessages((prev) => 
-            prev.map((msg) => 
-              msg.id === loadedMessage.id ? loadedMessage : msg
-            )
-          );
-        }).catch((error) => {
-          console.error('Error loading audio:', error);
+      // All storage operations in background - don't block UI rendering
+      // Use setTimeout to ensure UI update happens first
+      setTimeout(() => {
+        // Save message in background (don't block UI)
+        saveMessage(currentConversationId, newMessage).catch((error) => {
+          console.error('Error saving message:', error);
         });
-      }
-      
-      // Update conversations list
-      const updatedConversations = getConversations();
-      setConversations(updatedConversations);
+        
+        // If message has audio, handle it in background
+        if (newMessage.userAudioUrl && newMessage.userAudioUrl.startsWith('blob:')) {
+          // Save audio to IndexedDB in background
+          loadMessageWithAudio(newMessage).then((loadedMessage: Message) => {
+            // Update the message with the loaded audio URL
+            setMessages((prev) => 
+              prev.map((msg) => 
+                msg.id === loadedMessage.id ? loadedMessage : msg
+              )
+            );
+          }).catch((error: any) => {
+            console.error('Error loading audio:', error);
+          });
+        }
+        
+        // Update conversations list in background
+        const updatedConversations = getConversations();
+        setConversations(updatedConversations);
+      }, 0);
     }
   };
 
@@ -141,11 +145,11 @@ export default function ConversationScreen() {
       return (
         <div className="flex flex-col h-screen bg-gray-50">
           {/* Top Bar */}
-          <div className="bg-white shadow-sm px-4 py-3 flex items-center justify-between">
-            <h1 className="text-lg font-semibold text-gray-900">Conversations</h1>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 py-4 flex items-center justify-between">
+            <h1 className="text-lg font-bold text-white">Conversations</h1>
             <button
               onClick={() => navigate('/settings')}
-              className="text-gray-600 hover:text-gray-900 text-sm"
+              className="text-white/90 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors"
             >
               Settings
             </button>
@@ -164,21 +168,21 @@ export default function ConversationScreen() {
       return (
         <div className="flex flex-col h-screen bg-gray-50 min-h-0">
           {/* Top Bar */}
-          <div className="bg-white shadow-sm px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 py-4 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center">
               <button
                 onClick={() => setShowConversationList(true)}
-                className="mr-4 text-gray-600 hover:text-gray-900"
+                className="mr-4 text-white/90 hover:text-white font-medium"
               >
                 ← Back
               </button>
-              <h1 className="text-lg font-semibold text-gray-900">
+              <h1 className="text-lg font-bold text-white">
                 {getConversation(currentConversationId || '')?.title || 'Conversation'}
               </h1>
             </div>
             <button
               onClick={() => navigate('/settings')}
-              className="text-gray-600 hover:text-gray-900 text-sm"
+              className="text-white/90 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors"
             >
               Settings
             </button>
@@ -202,13 +206,13 @@ export default function ConversationScreen() {
 
   // Desktop/Tablet: Sidebar + Conversation
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/20">
       {/* Sidebar */}
-      <div className="w-80 flex-shrink-0 border-r border-gray-200">
+      <div className="w-80 flex-shrink-0 border-r border-gray-200/60 bg-white/80 backdrop-blur-sm">
         <div className="h-full flex flex-col">
           {/* Top Bar */}
-          <div className="bg-white shadow-sm px-4 py-3 flex items-center justify-between border-b border-gray-200">
-            <h1 className="text-lg font-semibold text-gray-900">AI English Practice</h1>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 py-4 flex items-center justify-between">
+            <h1 className="text-lg font-bold text-white">AI English Practice</h1>
             <button
               onClick={() => navigate('/settings')}
               className="text-gray-600 hover:text-gray-900 text-sm"
@@ -232,8 +236,8 @@ export default function ConversationScreen() {
         {currentConversationId ? (
           <>
             {/* Top Bar */}
-            <div className="bg-white shadow-sm px-4 py-3 border-b border-gray-200 flex-shrink-0">
-              <h2 className="text-lg font-semibold text-gray-900">
+            <div className="bg-white/60 backdrop-blur-sm shadow-sm px-4 py-4 border-b border-gray-200/60 flex-shrink-0">
+              <h2 className="text-lg font-semibold text-gray-800">
                 {getConversation(currentConversationId)?.title || 'Conversation'}
               </h2>
             </div>

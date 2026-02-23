@@ -149,8 +149,7 @@ export async function loadMessageWithAudio(message: Message): Promise<Message> {
         message.userAudioUrl = undefined;
       }
     }
-    // If it's already a blob URL (starts with 'blob:'), keep it as is
-  }
+  } 
   
   return message;
 }

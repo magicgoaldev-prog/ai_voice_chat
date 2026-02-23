@@ -14,13 +14,13 @@ router.post('/start', async (req, res) => {
 
 router.post('/message', async (req, res) => {
   try {
-    const { text, sessionId } = req.body;
+    const { text, sessionId, conversationHistory } = req.body;
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({ error: 'Text is required and cannot be empty.' });
     }
 
-    const result = await processTextMessage(text.trim(), sessionId);
+    const result = await processTextMessage(text.trim(), sessionId, conversationHistory || []);
     res.json(result);
   } catch (error: any) {
     console.error('Error processing text message:', error);

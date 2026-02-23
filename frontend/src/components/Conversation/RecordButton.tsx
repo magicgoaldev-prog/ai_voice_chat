@@ -14,17 +14,20 @@ import { runSpeechDiagnostics, logDiagnostics } from '../../utils/speechDiagnost
 
 interface RecordButtonProps {
   conversationId?: string;
+  messages?: Message[];
   onMessageSent: (message: Message) => void;
   onProcessingChange: (processing: boolean) => void;
 }
 
 export default function RecordButton({
   conversationId,
+  messages = [],
   onMessageSent,
   onProcessingChange,
 }: RecordButtonProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [finalTranscript, setFinalTranscript] = useState('');
+  const finalTranscriptRef = useRef<string>(''); // Use ref to accumulate final transcripts
   const isProcessingRef = useRef(false);
   const stopRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const { startRecording: startAudioRecording, stopRecording: stopAudioRecording } = useAudioRecorder();
@@ -42,7 +45,10 @@ export default function RecordButton({
     interimResults: true,
     onResult: (text, isFinal) => {
       if (isFinal) {
-        setFinalTranscript(text);
+        // Accumulate final transcripts instead of replacing
+        finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + text.trim();
+        setFinalTranscript(finalTranscriptRef.current);
+        console.log('📝 Final transcript accumulated:', finalTranscriptRef.current);
       }
     },
     onError: (error) => {
@@ -66,8 +72,8 @@ export default function RecordButton({
     // Stop audio recording for playback
     const audioBlob = await stopAudioRecording();
     
-    // Get final transcript
-    const textToSend = finalTranscript || transcript || '';
+    // Get final transcript - use accumulated final transcript or current transcript
+    const textToSend = finalTranscriptRef.current || finalTranscript || transcript || '';
     
     if (!textToSend.trim()) {
       // No text recognized, silently ignore
@@ -77,13 +83,40 @@ export default function RecordButton({
       }
       return;
     }
+    
+    // Reset accumulated transcript for next recording
+    finalTranscriptRef.current = '';
 
     // Create blob URL for user audio playback if available
     const userAudioUrl = audioBlob ? URL.createObjectURL(audioBlob) : undefined;
 
     onProcessingChange(true);
     try {
-      const response = await sendTextMessage(textToSend, conversationId);
+      // Build conversation history from previous messages (last 10 messages for context)
+      const conversationHistory = messages
+        .slice(-10) // Get last 10 messages for context
+        .map((msg) => {
+          if (msg.type === 'user') {
+            return {
+              role: 'user' as const,
+              content: msg.transcription || msg.correctedText || '',
+            };
+          } else {
+            return {
+              role: 'assistant' as const,
+              content: msg.aiResponseText || '',
+            };
+          }
+        })
+        .filter((msg) => msg.content.trim().length > 0); // Remove empty messages
+      
+      console.log('📝 Sending message with conversation history:', {
+        currentText: textToSend,
+        historyLength: conversationHistory.length,
+        history: conversationHistory.map(m => ({ role: m.role, content: m.content.substring(0, 30) + '...' })),
+      });
+      
+      const response = await sendTextMessage(textToSend, conversationId, conversationHistory);
       
       // Create user message with unique timestamp to ensure order
       const now = Date.now();
@@ -132,11 +165,13 @@ export default function RecordButton({
       onProcessingChange(false);
       isProcessingRef.current = false;
       setFinalTranscript('');
+      finalTranscriptRef.current = ''; // Reset accumulated transcript
       
       // Reset transcript state to ensure clean state for next recording
       // This is important for continuous conversations
       setTimeout(() => {
         setFinalTranscript('');
+        finalTranscriptRef.current = '';
         console.log('🔄 State reset for next recording');
       }, 100);
     }
@@ -222,6 +257,7 @@ export default function RecordButton({
 
       // Start both speech recognition and audio recording
       setFinalTranscript('');
+      finalTranscriptRef.current = ''; // Reset accumulated transcript
       
       // Check if speech recognition is supported
       const SpeechRecognition = 
@@ -305,32 +341,67 @@ export default function RecordButton({
     }
   }, [speechError, isRecording, stopListening, abortSpeech]);
 
+  // Telegram-style microphone icon SVG
+  const MicrophoneIcon = ({ isRecording }: { isRecording: boolean }) => (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="transition-all"
+    >
+      {isRecording ? (
+        // Recording state - square stop icon
+        <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+      ) : (
+        // Normal state - microphone icon
+        <>
+          <path
+            d="M12 2C10.34 2 9 3.34 9 5V11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11V5C15 3.34 13.66 2 12 2Z"
+            fill="currentColor"
+          />
+          <path
+            d="M19 10V11C19 14.87 15.87 18 12 18C8.13 18 5 14.87 5 11V10H7V11C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11V10H19Z"
+            fill="currentColor"
+          />
+          <path
+            d="M11 22H13V19H11V22Z"
+            fill="currentColor"
+          />
+        </>
+      )}
+    </svg>
+  );
+
   return (
     <div className="flex flex-col items-center">
       <button
         onMouseDown={handleStartRecording}
         onTouchStart={handleStartRecording}
-        className={`w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center text-2xl md:text-3xl transition-all ${
+        className={`w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all duration-200 ${
           isRecording
-            ? 'bg-red-500 hover:bg-red-600 animate-pulse'
-            : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'
-        } text-white shadow-lg touch-manipulation select-none`}
+            ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/50 scale-105'
+            : 'bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 active:scale-95 shadow-lg shadow-blue-500/30'
+        } text-white touch-manipulation select-none`}
         aria-label={isRecording ? 'Recording... Release to send' : 'Hold to record'}
       >
-        {isRecording ? '🔴' : '🎤'}
+        <MicrophoneIcon isRecording={isRecording} />
       </button>
       {isRecording && (
-        <div className="mt-2 text-center">
-          <p className="text-xs text-gray-600 animate-pulse">Recording... Release to send</p>
+        <div className="mt-3 text-center">
+          <p className="text-xs font-medium text-gray-700 animate-pulse mb-2">Recording... Release to send</p>
           {transcript ? (
-            <p className="text-xs text-gray-700 mt-1 max-w-xs px-2 py-1 bg-gray-100 rounded">
-              {transcript}
-            </p>
+            <div className="max-w-xs mx-auto px-3 py-2 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200/60">
+              <p className="text-sm text-gray-800 leading-relaxed">
+                {transcript}
+              </p>
+            </div>
           ) : (
-            <p className="text-xs text-gray-400 mt-1 italic">Listening...</p>
+            <p className="text-xs text-gray-500 mt-1 italic">Listening...</p>
           )}
           {speechError && (
-            <p className="text-xs text-red-500 mt-1">{speechError}</p>
+            <p className="text-xs text-red-600 mt-2 font-medium">{speechError}</p>
           )}
         </div>
       )}

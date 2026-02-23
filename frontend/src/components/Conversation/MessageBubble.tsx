@@ -38,10 +38,19 @@ function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
   return (
     <button
       onClick={togglePlay}
-      className="w-8 h-8 rounded-full bg-indigo-700 hover:bg-indigo-800 text-white flex items-center justify-center flex-shrink-0"
+      className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white flex items-center justify-center flex-shrink-0 transition-all"
       aria-label={isPlaying ? 'Pause recording' : 'Play recording'}
     >
-      {isPlaying ? '⏸' : '▶'}
+      {isPlaying ? (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="4" width="4" height="16" />
+          <rect x="14" y="4" width="4" height="16" />
+        </svg>
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      )}
     </button>
   );
 }
@@ -71,28 +80,31 @@ export default function MessageBubble({ message, isNewMessage = false }: Message
   if (message.type === 'user') {
     return (
       <div className="flex flex-col items-end space-y-2">
-        <div className="bg-indigo-600 text-white rounded-lg px-4 py-2 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-md">
           <div className="flex items-center gap-2">
             {message.userAudioUrl && (
               <UserAudioPlayer audioUrl={message.userAudioUrl} />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">You said:</p>
+              <p className="text-xs font-medium text-blue-100 mb-1">You said:</p>
               {message.transcription && (
-                <p className="text-xs text-indigo-200 mt-1 break-words whitespace-pre-wrap">
+                <p className="text-sm text-white break-words whitespace-pre-wrap leading-relaxed">
                   {message.transcription}
                 </p>
               )}
               {!message.transcription && (
-                <p className="text-xs text-indigo-200 mt-1 italic">(No transcription available)</p>
+                <p className="text-xs text-blue-100 italic">(No transcription available)</p>
               )}
             </div>
           </div>
         </div>
         {message.correctedText && message.correctedText !== message.transcription && (
-          <div className="bg-green-100 border border-green-300 rounded-lg px-4 py-2 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg">
-            <p className="text-sm font-semibold text-green-800">
-              Corrected: {message.correctedText}
+          <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-2xl px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm">
+            <p className="text-sm font-semibold text-emerald-800 mb-1">
+              ✨ Corrected:
+            </p>
+            <p className="text-sm text-emerald-900">
+              {message.correctedText}
             </p>
             {message.explanation && (
               <ErrorExplanation
@@ -109,7 +121,7 @@ export default function MessageBubble({ message, isNewMessage = false }: Message
 
   return (
       <div className="flex flex-col items-start space-y-2">
-      <div className="bg-white border border-gray-200 rounded-lg px-4 py-2 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg">
+      <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200/60 rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm">
         <AudioPlayer
           audioUrl={message.audioUrl}
           text={message.aiResponseText}

@@ -5,7 +5,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
 export async function sendTextMessage(
   text: string,
-  sessionId?: string
+  sessionId?: string,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): Promise<ConversationResponse> {
   try {
     const response = await axios.post<ConversationResponse>(
@@ -13,6 +14,7 @@ export async function sendTextMessage(
       {
         text,
         sessionId: sessionId || 'temp-session',
+        conversationHistory: conversationHistory || [],
       },
       {
         headers: {

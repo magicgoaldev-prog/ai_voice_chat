@@ -12,7 +12,7 @@ interface AudioPlayerProps {
 export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPlay = false }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1.0);
-  const [showText, setShowText] = useState(false);
+  const [showText, setShowText] = useState(true); // Default to showing text
   const howlRef = useRef<Howl | null>(null);
 
   useEffect(() => {
@@ -291,34 +291,49 @@ export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPla
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-2 flex-wrap">
         <button
           onClick={togglePlay}
-          className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700"
+          className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center hover:from-blue-600 hover:to-blue-700 shadow-md transition-all active:scale-95"
         >
-          {isPlaying ? '⏸' : '▶'}
+          {isPlaying ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16" />
+              <rect x="14" y="4" width="4" height="16" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
         </button>
-        <div className="flex space-x-1">
+        <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
           <button
             onClick={() => handleSpeedChange(0.5)}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
-              Math.abs(speed - 0.5) < 0.01 ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+              Math.abs(speed - 0.5) < 0.01 
+                ? 'bg-blue-500 text-white shadow-sm' 
+                : 'bg-transparent text-gray-600 hover:bg-gray-200'
             }`}
           >
             0.5x
           </button>
           <button
             onClick={() => handleSpeedChange(1.0)}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
-              Math.abs(speed - 1.0) < 0.01 ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+              Math.abs(speed - 1.0) < 0.01 
+                ? 'bg-blue-500 text-white shadow-sm' 
+                : 'bg-transparent text-gray-600 hover:bg-gray-200'
             }`}
           >
             1x
           </button>
           <button
             onClick={() => handleSpeedChange(2.0)}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
-              Math.abs(speed - 2.0) < 0.01 ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+              Math.abs(speed - 2.0) < 0.01 
+                ? 'bg-blue-500 text-white shadow-sm' 
+                : 'bg-transparent text-gray-600 hover:bg-gray-200'
             }`}
           >
             2x
@@ -326,19 +341,19 @@ export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPla
         </div>
         <button
           onClick={() => setShowText(!showText)}
-          className="text-xs text-indigo-600 hover:text-indigo-800"
+          className="text-xs text-gray-600 hover:text-gray-900 font-medium px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
         >
           {showText ? 'Hide text' : 'Show text'}
         </button>
         <button
           onClick={onShowTranslation}
-          className="text-xs text-indigo-600 hover:text-indigo-800"
+          className="text-xs text-gray-600 hover:text-gray-900 font-medium px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
         >
           Translate
         </button>
       </div>
       {showText && text && (
-        <p className="text-sm text-gray-700 mt-2">{text}</p>
+        <p className="text-sm text-gray-700 mt-2 leading-relaxed">{text}</p>
       )}
     </div>
   );

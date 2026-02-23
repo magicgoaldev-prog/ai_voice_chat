@@ -124,60 +124,102 @@ let lastResponseQuotaErrorTime = 0;
 
 export async function generateResponse(
   userText: string,
-  sessionId?: string
+  sessionId?: string,
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
 ): Promise<string> {
   // Try OpenAI API if available, otherwise use simple responses
   const openaiApiKey = process.env.OPENAI_API_KEY;
   
+  // Debug: Log API key status
+  if (!openaiApiKey) {
+    console.warn('⚠️ OPENAI_API_KEY not found in environment variables. Using rule-based responses.');
+    console.warn('💡 To enable AI responses, set OPENAI_API_KEY in your .env file');
+  } else {
+    console.log('✅ OPENAI_API_KEY found, attempting to use OpenAI API');
+  }
+  
   // Check if we should skip API call due to recent quota error
   const timeSinceLastError = Date.now() - lastResponseQuotaErrorTime;
   if (responseQuotaExceeded && timeSinceLastError < QUOTA_ERROR_COOLDOWN) {
-    console.log('Skipping OpenAI API call for response generation due to recent quota error, using simple response');
+    console.log('⏸️ Skipping OpenAI API call for response generation due to recent quota error, using simple response');
     // Fall through to simple responses
   } else {
     // Reset quota error flag after cooldown period
     if (responseQuotaExceeded && timeSinceLastError >= QUOTA_ERROR_COOLDOWN) {
       responseQuotaExceeded = false;
-      console.log('Response quota error cooldown expired, retrying OpenAI API');
+      console.log('🔄 Response quota error cooldown expired, retrying OpenAI API');
     }
     
     if (openaiApiKey) {
       try {
+        console.log('🤖 Calling OpenAI API with conversation history:', {
+          historyLength: conversationHistory.length,
+          userText: userText.substring(0, 50),
+        });
+        
         const OpenAI = require('openai');
         const openai = new OpenAI({ apiKey: openaiApiKey });
 
-        const systemPrompt = `You are a friendly English conversation partner. Respond naturally to what the user says, as if you're having a casual conversation. Keep responses concise (1-2 sentences). Adjust your language level based on the user's English proficiency.`;
+        const systemPrompt = `You are a friendly English conversation partner. Respond naturally to what the user says, as if you're having a casual conversation. Keep responses concise (1-2 sentences). Adjust your language level based on the user's English proficiency. Remember the context of previous messages in the conversation.`;
+
+        // Build messages array with conversation history
+        const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+        ];
+
+        // Add conversation history (last 10 messages for context)
+        conversationHistory.slice(-10).forEach((msg) => {
+          messages.push({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content,
+          });
+        });
+
+        // Add current user message
+        messages.push({
+          role: 'user',
+          content: userText,
+        });
+
+        console.log('📤 Sending to OpenAI:', {
+          messageCount: messages.length,
+          model: 'gpt-4o-mini',
+        });
 
         const response = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-            },
-            {
-              role: 'user',
-              content: userText,
-            },
-          ],
+          messages: messages,
           temperature: 0.7,
           max_tokens: 150,
         });
 
+        const aiResponse = response.choices[0].message.content || "I'm here to help you practice English!";
+        console.log('✅ OpenAI API response received:', aiResponse.substring(0, 50));
+        
         // Reset quota error flag on success
         responseQuotaExceeded = false;
-        return response.choices[0].message.content || "I'm here to help you practice English!";
+        return aiResponse;
       } catch (error: any) {
         // Check if it's a quota error
         if (error?.code === 'insufficient_quota' || error?.status === 429) {
           responseQuotaExceeded = true;
           lastResponseQuotaErrorTime = Date.now();
-          console.warn('OpenAI API quota exceeded for response generation, will use simple responses for next 5 minutes');
+          console.error('❌ OpenAI API quota exceeded for response generation, will use simple responses for next 5 minutes');
+          console.error('Error details:', error?.message || error);
         } else {
-          console.error('OpenAI API error, using simple response:', error?.message || error);
+          console.error('❌ OpenAI API error, using simple response');
+          console.error('Error code:', error?.code);
+          console.error('Error message:', error?.message);
+          console.error('Error status:', error?.status);
+          console.error('Full error:', error);
         }
         // Fall back to simple responses
       }
+    } else {
+      console.log('📝 No OpenAI API key, using rule-based responses');
     }
   }
 
