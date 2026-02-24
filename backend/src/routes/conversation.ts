@@ -41,6 +41,7 @@ router.post('/message/stream', async (req, res) => {
       text,
       sessionId,
       conversationHistory,
+      englishLevel,
       userMessageId,
       aiMessageId,
       isSuggestedReply,
@@ -67,6 +68,10 @@ router.post('/message/stream', async (req, res) => {
     const history: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(conversationHistory)
       ? conversationHistory
       : [];
+    const level: 'beginner' | 'intermediate' | 'advanced' =
+      englishLevel === 'advanced' || englishLevel === 'intermediate' || englishLevel === 'beginner'
+        ? englishLevel
+        : 'beginner';
 
     // Keep-alive pings
     const ping = setInterval(() => {
@@ -137,7 +142,7 @@ router.post('/message/stream', async (req, res) => {
     // If no key, fall back to non-stream generation (rule-based inside generateResponse)
     if (!openaiApiKey) {
       const tLlm0 = Date.now();
-      const full = await generateResponse(text.trim(), undefined, history);
+      const full = await generateResponse(text.trim(), undefined, history, level);
       const tLlm1 = Date.now();
       try {
         await updateMessage(conversationId, aiMessageId, { ai_response_text: full });
@@ -170,7 +175,13 @@ router.post('/message/stream', async (req, res) => {
     const systemPrompt =
       `You are a friendly English conversation partner. Respond naturally to what the user says, ` +
       `as if you're having a casual conversation. Keep responses concise (1-2 sentences). ` +
-      `Adjust your language level based on the user's English proficiency. Remember the context.`;
+      `English level: ${level}. ` +
+      (level === 'beginner'
+        ? 'Use simple words and short sentences. Avoid idioms and complex grammar.'
+        : level === 'intermediate'
+          ? 'Use natural everyday English.'
+          : 'Use natural, richer English while staying concise.') +
+      ` Remember the context.`;
 
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
@@ -208,7 +219,7 @@ router.post('/message/stream', async (req, res) => {
     // so the UI doesn't end up with an empty assistant message.
     if (!clientClosed && fullText.trim().length === 0) {
       try {
-        const fallback = await generateResponse(text.trim(), undefined, history);
+        const fallback = await generateResponse(text.trim(), undefined, history, level);
         if (fallback && fallback.trim().length > 0) {
           fullText = fallback;
           sseWrite(res, 'delta', { delta: fallback });
@@ -447,12 +458,18 @@ router.post('/message', async (req, res) => {
       text,
       sessionId, // we treat sessionId as conversationId for now
       conversationHistory,
+      englishLevel,
       userMessageId,
       aiMessageId,
       isSuggestedReply,
       userCreatedAt,
       aiCreatedAt,
     } = req.body;
+
+    const level: 'beginner' | 'intermediate' | 'advanced' =
+      englishLevel === 'advanced' || englishLevel === 'intermediate' || englishLevel === 'beginner'
+        ? englishLevel
+        : 'beginner';
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({ error: 'Text is required and cannot be empty.' });
@@ -476,7 +493,7 @@ router.post('/message', async (req, res) => {
 
     // Generate AI text
     const t1 = Date.now();
-    const result = await processTextMessage(text.trim(), conversationId, conversationHistory || []);
+    const result = await processTextMessage(text.trim(), conversationId, conversationHistory || [], level);
     const t2 = Date.now();
 
     // Insert messages (fast path: don't wait for audio generation)

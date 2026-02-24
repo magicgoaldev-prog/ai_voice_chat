@@ -9,8 +9,6 @@ export interface User {
 export interface UserSettings {
   language: string;
   englishLevel: 'beginner' | 'intermediate' | 'advanced';
-  voiceSpeed: number;
-  darkMode: boolean;
 }
 
 export interface Conversation {

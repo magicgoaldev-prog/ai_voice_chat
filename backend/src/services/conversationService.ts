@@ -4,10 +4,11 @@ import { correctText, generateResponse, generateSuggestedReplies } from './llmSe
 export async function processTextMessage(
   text: string,
   sessionId?: string,
-  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  englishLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner'
 ) {
   // Generate AI Response with conversation history
-  const aiResponseText = await generateResponse(text, sessionId, conversationHistory || []);
+  const aiResponseText = await generateResponse(text, sessionId, conversationHistory || [], englishLevel);
 
   // TTS is handled on frontend with Web Speech API
   return {

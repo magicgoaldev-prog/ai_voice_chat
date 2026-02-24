@@ -114,7 +114,8 @@ let lastResponseQuotaErrorTime = 0;
 export async function generateResponse(
   userText: string,
   sessionId?: string,
-  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+  englishLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner'
 ): Promise<string> {
   // Try OpenAI API if available, otherwise use simple responses
   const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -149,7 +150,18 @@ export async function generateResponse(
         const OpenAI = require('openai');
         const openai = new OpenAI({ apiKey: openaiApiKey });
 
-        const systemPrompt = `You are a friendly English conversation partner. Respond naturally to what the user says, as if you're having a casual conversation. Keep responses concise (1-2 sentences). Adjust your language level based on the user's English proficiency. Remember the context of previous messages in the conversation.`;
+        const levelGuide =
+          englishLevel === 'beginner'
+            ? 'Use simple words and short sentences (A2). Avoid idioms and complex grammar. Ask simple follow-up questions.'
+            : englishLevel === 'intermediate'
+              ? 'Use natural everyday English (B1-B2). Keep it friendly and conversational. Explain briefly if needed.'
+              : 'Use natural, rich English (C1). You can use idioms lightly. Keep it concise but engaging.';
+
+        const systemPrompt =
+          `You are a friendly English conversation partner. Respond naturally to what the user says, ` +
+          `as if you're having a casual conversation. Keep responses concise (1-2 sentences). ` +
+          `English level: ${englishLevel}. ${levelGuide} ` +
+          `Remember the context of previous messages in the conversation.`;
 
         // Build messages array with conversation history
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -159,8 +171,8 @@ export async function generateResponse(
           },
         ];
 
-        // Add conversation history (last 10 messages for context)
-        conversationHistory.slice(-10).forEach((msg) => {
+        // Add conversation history (last 6 messages for cost/latency)
+        conversationHistory.slice(-6).forEach((msg) => {
           messages.push({
             role: msg.role === 'user' ? 'user' : 'assistant',
             content: msg.content,
@@ -182,7 +194,7 @@ export async function generateResponse(
           model: 'gpt-4o-mini',
           messages: messages,
           temperature: 0.7,
-          max_tokens: 150,
+          max_tokens: 120,
         });
 
         const aiResponse = response.choices[0].message.content || "I'm here to help you practice English!";

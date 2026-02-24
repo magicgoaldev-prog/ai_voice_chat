@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Conversation, ConversationResponse, FeedbackResponse, Message, SuggestionsResponse, TranslationResponse } from '../types';
+import { loadUserSettings } from '../utils/userSettings';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -20,6 +21,7 @@ export async function sendTextMessageStream(
     onAudioDataUrl?: (audioDataUrl: string) => void;
   }
 ): Promise<{ aiResponseText: string; timings?: any }> {
+  const { englishLevel } = loadUserSettings();
   const start = performance.now();
   const resp = await fetch(`${API_BASE_URL}/conversation/message/stream`, {
     method: 'POST',
@@ -31,6 +33,7 @@ export async function sendTextMessageStream(
       text,
       sessionId: sessionId || 'temp-session',
       conversationHistory: conversationHistory || [],
+      englishLevel,
       userMessageId: meta?.userMessageId,
       aiMessageId: meta?.aiMessageId,
       isSuggestedReply: !!meta?.isSuggestedReply,
@@ -137,6 +140,7 @@ export async function sendTextMessage(
   }
 ): Promise<ConversationResponse> {
   try {
+    const { englishLevel } = loadUserSettings();
     const start = performance.now();
     const response = await axios.post<ConversationResponse>(
       `${API_BASE_URL}/conversation/message`,
@@ -144,6 +148,7 @@ export async function sendTextMessage(
         text,
         sessionId: sessionId || 'temp-session',
         conversationHistory: conversationHistory || [],
+        englishLevel,
         userMessageId: meta?.userMessageId,
         aiMessageId: meta?.aiMessageId,
         isSuggestedReply: !!meta?.isSuggestedReply,

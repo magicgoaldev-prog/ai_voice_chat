@@ -3,6 +3,7 @@ import AudioPlayer from './AudioPlayer';
 import ErrorExplanation from './ErrorExplanation';
 import { Message } from '../../types';
 import { translateText } from '../../services/api';
+import { loadUserSettings } from '../../utils/userSettings';
 
 // Simple audio player for user recordings
 function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
@@ -181,7 +182,8 @@ export default function MessageBubble({
               if (message.aiResponseText && !translatedText) {
                 setIsTranslating(true);
                 try {
-                  const result = await translateText(message.aiResponseText, 'ko');
+                  const { targetLanguage } = loadUserSettings();
+                  const result = await translateText(message.aiResponseText, targetLanguage);
                   setTranslatedText(result.translatedText);
                 } catch (error) {
                   console.error('Translation error:', error);
