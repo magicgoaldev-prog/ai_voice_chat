@@ -34,16 +34,16 @@ export default function ConversationView({
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-gray-50 via-blue-50/20 to-indigo-50/10 min-h-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-gray-200/60 bg-white/60 backdrop-blur-sm flex-shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-6 h-14 min-h-[56px] max-h-[56px] border-b border-gray-200/60 bg-white/60 backdrop-blur-sm flex-shrink-0">
         <button
           onClick={onRestartConversation}
-          className="text-sm font-semibold text-blue-700 hover:text-blue-800 hover:underline"
+          className="text-sm font-semibold text-blue-700 hover:text-blue-800 hover:underline leading-none"
         >
           Restart Conversation
         </button>
 
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">Autoplay Audio</span>
+          <span className="text-sm font-medium text-gray-700 leading-none">Autoplay Audio</span>
           <button
             onClick={() => onToggleAutoPlayAudio(!autoPlayAudio)}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${

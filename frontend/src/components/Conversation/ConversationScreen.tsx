@@ -298,11 +298,11 @@ export default function ConversationScreen() {
       return (
         <div className="flex flex-col h-screen bg-gray-50">
           {/* Top Bar */}
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 py-4 flex items-center justify-between">
-            <h1 className="text-lg font-bold text-white">Conversations</h1>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between">
+            <h1 className="text-lg font-bold text-white leading-none">Conversations</h1>
             <button
               onClick={() => navigate('/settings')}
-              className="text-white/90 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors"
+              className="text-white hover:text-white text-sm font-medium px-3 h-8 rounded-lg hover:bg-white/20 transition-colors flex items-center"
             >
               Settings
             </button>
@@ -321,21 +321,21 @@ export default function ConversationScreen() {
       return (
         <div className="flex flex-col h-screen bg-gray-50 min-h-0">
           {/* Top Bar */}
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 py-4 flex items-center justify-between flex-shrink-0">
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between flex-shrink-0">
             <div className="flex items-center">
               <button
                 onClick={() => setShowConversationList(true)}
-                className="mr-4 text-white/90 hover:text-white font-medium"
+                className="mr-4 text-white/90 hover:text-white font-medium leading-none"
               >
                 ← Back
               </button>
-              <h1 className="text-lg font-bold text-white">
+              <h1 className="text-lg font-bold text-white leading-none">
                 {getConversationTitle(conversations, currentConversationId)}
               </h1>
             </div>
             <button
               onClick={() => navigate('/settings')}
-              className="text-white/90 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors"
+              className="text-white hover:text-white text-sm font-medium px-3 h-8 rounded-lg hover:bg-white/20 transition-colors flex items-center"
             >
               Settings
             </button>
@@ -371,11 +371,11 @@ export default function ConversationScreen() {
       <div className="w-80 flex-shrink-0 border-r border-gray-200/60 bg-white/80 backdrop-blur-sm">
         <div className="h-full flex flex-col">
           {/* Top Bar */}
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 py-4 flex items-center justify-between">
-            <h1 className="text-lg font-bold text-white">AI English Practice</h1>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between">
+            <h1 className="text-lg font-bold text-white leading-none">AI English Practice</h1>
             <button
               onClick={() => navigate('/settings')}
-              className="text-gray-600 hover:text-gray-900 text-sm"
+              className="text-white hover:text-white text-sm font-medium px-3 h-8 rounded-lg hover:bg-white/20 transition-colors flex items-center"
             >
               Settings
             </button>
