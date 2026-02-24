@@ -334,6 +334,45 @@ router.get('/:id/messages', async (req, res) => {
   try {
     const conversationId = req.params.id;
     const messages = await listMessages(conversationId, MOCK_USER_ID);
+
+    // Best-effort backfill: if DB rows are missing user_audio_url but files exist in Storage,
+    // attach the public URL so the UI can show the audio icon consistently.
+    const needsUserAudioBackfill = messages.some((m) => m.type === 'user' && !m.user_audio_url);
+    if (needsUserAudioBackfill) {
+      try {
+        const basePrefix = `${MOCK_USER_ID}/${conversationId}`;
+        const level1 = await supabase.storage.from(SUPABASE_STORAGE_BUCKET).list(basePrefix, { limit: 1000 });
+        if (level1.error) throw level1.error;
+
+        const messageIdToUserUrl = new Map<string, string>();
+        for (const item of level1.data || []) {
+          if (!item.name) continue;
+          const messageFolder = `${basePrefix}/${item.name}`;
+          const files = await supabase.storage.from(SUPABASE_STORAGE_BUCKET).list(messageFolder, { limit: 1000 });
+          if (files.error) continue;
+          const userFile = (files.data || []).find((f) => typeof f.name === 'string' && f.name.startsWith('user.'));
+          if (!userFile?.name) continue;
+          const path = `${messageFolder}/${userFile.name}`;
+          const publicUrlRes = supabase.storage.from(SUPABASE_STORAGE_BUCKET).getPublicUrl(path);
+          const url = publicUrlRes.data.publicUrl;
+          if (url) messageIdToUserUrl.set(item.name, url);
+        }
+
+        // Apply backfill to response and persist in background for future loads
+        for (const m of messages) {
+          if (m.type !== 'user') continue;
+          if (m.user_audio_url) continue;
+          const url = messageIdToUserUrl.get(m.id);
+          if (!url) continue;
+          (m as any).user_audio_url = url;
+          setImmediate(() => {
+            updateMessage(conversationId, m.id, { user_audio_url: url }).catch(() => {});
+          });
+        }
+      } catch (e) {
+        console.warn('User audio URL backfill failed (non-fatal):', e);
+      }
+    }
     res.json({ messages });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Failed to list messages' });
