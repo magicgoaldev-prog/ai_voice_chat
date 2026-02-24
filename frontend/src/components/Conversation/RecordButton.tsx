@@ -120,8 +120,9 @@ export default function RecordButton({
       
       // Create user message with unique timestamp to ensure order
       const now = Date.now();
+      const rand = Math.random().toString(36).slice(2, 8);
       const userMessage: Message = {
-        id: `user_${now}`,
+        id: `user_${now}_${rand}`,
         conversationId: conversationId || 'temp',
         type: 'user',
         transcription: textToSend, // Use the actual text the user said, not the response transcription
@@ -133,7 +134,7 @@ export default function RecordButton({
 
       // Create AI message with slightly later timestamp to ensure it comes after user message
       const aiMessage: Message = {
-        id: `ai_${now + 1}`,
+        id: `ai_${now + 1}_${rand}`,
         conversationId: conversationId || 'temp',
         type: 'ai',
         aiResponseText: response.aiResponseText,

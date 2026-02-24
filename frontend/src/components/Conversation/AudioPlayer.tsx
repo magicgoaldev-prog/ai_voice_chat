@@ -1,142 +1,80 @@
 import { useState, useRef, useEffect } from 'react';
-import { Howl } from 'howler';
 import { speakText, stopSpeaking } from '../../utils/speechSynthesis';
+
+// Prevent re-autoplay across remounts during a single app session
+const autoPlayedTtsKeys = new Set<string>();
 
 interface AudioPlayerProps {
   audioUrl?: string;
   text?: string;
   onShowTranslation: () => void;
   autoPlay?: boolean; // Auto-play when component mounts or text changes
+  autoPlayKey?: string; // stable key (e.g., message.id) to ensure we auto-play once per message
 }
 
-export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPlay = false }: AudioPlayerProps) {
+export default function AudioPlayer({
+  audioUrl: _audioUrl,
+  text,
+  onShowTranslation,
+  autoPlay = false,
+  autoPlayKey,
+}: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1.0);
   const [showText, setShowText] = useState(true); // Default to showing text
-  const howlRef = useRef<Howl | null>(null);
+  const ttsAutoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevAutoPlayRef = useRef<boolean>(false);
+  const prevTextRef = useRef<string>('');
 
   useEffect(() => {
-    if (audioUrl && howlRef.current) {
-      howlRef.current.unload();
-    }
-
-    if (audioUrl) {
-      howlRef.current = new Howl({
-        src: [audioUrl],
-        html5: true,
-        rate: speed,
-        onend: () => setIsPlaying(false),
-      });
-    }
-
+    // Cleanup any active TTS on unmount
     return () => {
-      if (howlRef.current) {
-        howlRef.current.unload();
-      }
       stopSpeaking();
     };
-  }, [audioUrl, speed]);
+  }, []);
 
-  // Auto-play when text changes and autoPlay is true
-  const hasAutoPlayedRef = useRef<string | null>(null);
-  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevAutoPlayRef = useRef<boolean>(false);
-  const prevTextRef = useRef<string | undefined>(undefined);
-  
+  // Auto-play via Web Speech API TTS (fast, no server wait)
   useEffect(() => {
-    // Clear any existing timer
-    if (autoPlayTimerRef.current) {
-      clearTimeout(autoPlayTimerRef.current);
-      autoPlayTimerRef.current = null;
+    if (ttsAutoPlayTimerRef.current) {
+      clearTimeout(ttsAutoPlayTimerRef.current);
+      ttsAutoPlayTimerRef.current = null;
     }
-    
-    // Check if conditions are met for auto-play
-    const hasText = !!text && text.trim().length > 0;
-    const shouldAutoPlay = autoPlay && hasText && !audioUrl;
-    const textChanged = text !== prevTextRef.current;
-    const autoPlayEnabled = autoPlay && !prevAutoPlayRef.current;
-    
-    // Update refs
-    prevTextRef.current = text;
-    prevAutoPlayRef.current = autoPlay || false;
-    
-    // Auto-play if:
-    // 1. autoPlay is true
-    // 2. text exists and changed
-    // 3. no audioUrl
-    // 4. hasn't been played yet for this text
-    if (shouldAutoPlay && (textChanged || autoPlayEnabled) && text !== hasAutoPlayedRef.current) {
-      // Mark this text as played immediately to prevent duplicate calls
-      hasAutoPlayedRef.current = text;
-      
-      console.log('🎵 Auto-play triggered:', { 
-        text: text.substring(0, 50),
-        autoPlay,
-        textChanged,
-        autoPlayEnabled,
-        currentSpeed: speed
-      });
-      
-      // Small delay to ensure component is fully rendered and scrolled
-      autoPlayTimerRef.current = setTimeout(async () => {
-        // Double-check conditions before playing
-        if (!text || text !== hasAutoPlayedRef.current) {
-          console.log('⏭️ Auto-play cancelled - text changed');
-          hasAutoPlayedRef.current = null; // Reset so it can retry
-          return;
-        }
-        
-        try {
-          // Use current speed state (default 1.0)
-          let currentSpeed = speed;
-          if (currentSpeed === undefined || currentSpeed === null || isNaN(currentSpeed) || !isFinite(currentSpeed)) {
-            currentSpeed = 1.0;
-            setSpeed(1.0);
-          }
-          currentSpeed = Math.max(0.1, Math.min(10, currentSpeed));
-          
-          setIsPlaying(true);
-          console.log('🎵 Auto-playing TTS:', { 
-            text: text.substring(0, 50), 
-            speed: currentSpeed,
-            autoPlay: autoPlay
-          });
-          
-          await speakText({
-            text: text,
-            lang: 'en-US',
-            rate: currentSpeed,
-          });
-          
-          console.log('✅ Auto-play TTS completed');
-          setIsPlaying(false);
-        } catch (error: any) {
-          console.error('❌ Auto-play TTS error:', error);
-          setIsPlaying(false);
-          // Reset on error so it can retry
-          hasAutoPlayedRef.current = null;
-        }
-        autoPlayTimerRef.current = null;
-      }, 300); // Reduced delay to 300ms for faster response
-    } else if (shouldAutoPlay && text === hasAutoPlayedRef.current) {
-      console.log('⏭️ Skipping auto-play - already played:', {
-        text: text?.substring(0, 50)
-      });
-    } else if (!shouldAutoPlay) {
-      console.log('⏭️ Auto-play conditions not met:', {
-        autoPlay,
-        hasText,
-        hasAudioUrl: !!audioUrl
-      });
-    }
+
+    const t = (text || '').trim();
+    const key = autoPlayKey || t;
+    const autoPlayEnabledJustNow = autoPlay && !prevAutoPlayRef.current;
+    const textChanged = t !== prevTextRef.current;
+    prevAutoPlayRef.current = !!autoPlay;
+    prevTextRef.current = t;
+
+    if (!autoPlay) return;
+    if (!t) return;
+    if (!key) return;
+    if (!textChanged && !autoPlayEnabledJustNow) return;
+    if (autoPlayedTtsKeys.has(key)) return;
+
+    // Debounce a bit so streaming doesn't speak partial fragments
+    ttsAutoPlayTimerRef.current = setTimeout(async () => {
+      try {
+        setIsPlaying(true);
+        autoPlayedTtsKeys.add(key);
+        await speakText({ text: t, lang: 'en-US', rate: speed });
+      } catch (e) {
+        // allow retry on next update
+        autoPlayedTtsKeys.delete(key);
+        console.warn('WebSpeech auto-play failed (non-fatal):', e);
+      } finally {
+        setIsPlaying(false);
+      }
+    }, 450);
 
     return () => {
-      if (autoPlayTimerRef.current) {
-        clearTimeout(autoPlayTimerRef.current);
-        autoPlayTimerRef.current = null;
+      if (ttsAutoPlayTimerRef.current) {
+        clearTimeout(ttsAutoPlayTimerRef.current);
+        ttsAutoPlayTimerRef.current = null;
       }
     };
-  }, [text, autoPlay, audioUrl, speed]); // Include speed to use current speed
+  }, [autoPlay, autoPlayKey, text, speed]);
 
   const togglePlay = async () => {
     // Use current speed state
@@ -154,21 +92,8 @@ export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPla
     currentSpeed = Math.max(0.1, Math.min(10, currentSpeed));
     
     console.log('▶️ Toggle play:', { isPlaying, speed: currentSpeed, hasText: !!text });
-    
-    // If audioUrl exists, use Howler (for backward compatibility)
-    if (audioUrl && howlRef.current) {
-      if (isPlaying) {
-        howlRef.current.pause();
-      } else {
-        // Update rate before playing
-        howlRef.current.rate(currentSpeed);
-        howlRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-      return;
-    }
 
-    // Otherwise, use Web Speech API TTS
+    // Always use Web Speech API TTS for manual play (consistent voice, avoids mp3 delays).
     if (!text) {
       console.warn('No text to play');
       return;
@@ -245,21 +170,8 @@ export default function AudioPlayer({ audioUrl, text, onShowTranslation, autoPla
     // Update speed state immediately - this is critical
     setSpeed(validSpeed);
     
-    // If using Howler (audioUrl exists)
-    if (audioUrl && howlRef.current) {
-      if (isPlaying) {
-        howlRef.current.rate(validSpeed);
-        console.log('✅ Speed changed for Howler audio (playing)');
-      } else {
-        // Update rate for next play
-        howlRef.current.rate(validSpeed);
-        console.log('💾 Speed updated for Howler audio (next play)');
-      }
-      return;
-    }
-    
     // For Web Speech API
-    if (!audioUrl && text) {
+    if (text) {
       if (isPlaying) {
         // If currently playing, stop and restart with new speed
         console.log('🔄 Restarting TTS with new speed:', validSpeed);

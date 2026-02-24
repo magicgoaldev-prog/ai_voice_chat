@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
-import { getSuggestions, sendTextMessage } from '../../services/api';
+import { getSuggestions, sendTextMessage, sendTextMessageStream, uploadMessageAudio } from '../../services/api';
 import { Message } from '../../types';
 import { checkMicrophonePermission, getMicrophonePermissionInstructions, requiresHTTPS } from '../../utils/permissionHelper';
 
@@ -11,6 +11,9 @@ interface MessageComposerProps {
   isProcessing: boolean;
   onMessageSent: (message: Message) => void;
   onProcessingChange: (processing: boolean) => void;
+  autoPlayAudio: boolean;
+  restartNonce: number;
+  onPatchMessage: (messageId: string, patch: Partial<Message>) => void;
 }
 
 function MicrophoneIcon({ isRecording }: { isRecording: boolean }) {
@@ -62,6 +65,9 @@ export default function MessageComposer({
   isProcessing,
   onMessageSent,
   onProcessingChange,
+  autoPlayAudio,
+  restartNonce,
+  onPatchMessage,
 }: MessageComposerProps) {
   const [inputText, setInputText] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -81,11 +87,31 @@ export default function MessageComposer({
     startListening,
     stopListening,
     abort: abortSpeech,
+    reset: resetSpeech,
   } = useSpeechRecognition({
     language: 'en-US',
     continuous: true,
     interimResults: true,
   });
+
+  const suppressSpeechToInputRef = useRef(false);
+  const pendingUserAudioBlobRef = useRef<Blob | null>(null);
+  const userOverrodeInputRef = useRef(false); // user typed/edited input while listening; don't clobber with STT
+
+  // When conversation is restarted (same conversationId, messages cleared), reset composer state.
+  useEffect(() => {
+    setInputText('');
+    setShowSuggestions(false);
+    setSuggestions([]);
+    pendingUserAudioBlobRef.current = null;
+    latestTranscriptRef.current = '';
+    suppressSpeechToInputRef.current = false;
+    userOverrodeInputRef.current = false;
+    // Ensure speech is not running
+    stopListening();
+    abortSpeech();
+    resetSpeech();
+  }, [restartNonce]);
 
   const autoPunctuate = (text: string) => {
     let t = (text || '').trim();
@@ -114,6 +140,11 @@ export default function MessageComposer({
 
   // Keep a ref of transcript for stop-time sending
   useEffect(() => {
+    if (suppressSpeechToInputRef.current) return;
+    if (userOverrodeInputRef.current) {
+      // User is editing; don't overwrite their input with late STT updates.
+      return;
+    }
     // Build display text as: punctuated final + raw interim (token-like)
     const punctuatedFinal = autoPunctuate(finalTranscript || '');
     const combined = `${punctuatedFinal}${punctuatedFinal && interimTranscript ? ' ' : ''}${interimTranscript || ''}`.trim();
@@ -127,7 +158,7 @@ export default function MessageComposer({
 
   const conversationHistory = useMemo(() => {
     return messages
-      .slice(-10)
+      .slice(-6)
       .map((msg) => {
         if (msg.type === 'user') {
           return { role: 'user' as const, content: msg.transcription || '' };
@@ -139,7 +170,7 @@ export default function MessageComposer({
 
   const lastAiMessageText = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].type === 'ai' && messages[i].aiResponseText) return messages[i].aiResponseText;
+      if (messages[i].type === 'ai' && messages[i].aiResponseText) return messages[i].aiResponseText || '';
     }
     return '';
   }, [messages]);
@@ -150,30 +181,76 @@ export default function MessageComposer({
     if (isProcessing) return;
 
     onProcessingChange(true);
+
+    const now = Date.now();
+    const rand = Math.random().toString(36).slice(2, 8);
+    const userMessage: Message = {
+      id: `user_${now}_${rand}`,
+      conversationId: conversationId || 'temp',
+      type: 'user',
+      transcription: trimmed,
+      userAudioUrl: opts?.userAudioUrl,
+      isSuggestedReply: !!opts?.isSuggestedReply,
+      createdAt: new Date(now).toISOString(),
+    };
+
+    const aiMessage: Message = {
+      id: `ai_${now + 1}_${rand}`,
+      conversationId: conversationId || 'temp',
+      type: 'ai',
+      aiResponseText: '',
+      createdAt: new Date(now + 1).toISOString(),
+    };
+
+    // Optimistic UI: show bubbles immediately, then stream AI tokens into the AI bubble.
+    onMessageSent(userMessage);
+    setTimeout(() => onMessageSent(aiMessage), 30);
+
     try {
-      const response = await sendTextMessage(trimmed, conversationId, conversationHistory);
-
-      const now = Date.now();
-      const userMessage: Message = {
-        id: `user_${now}`,
-        conversationId: conversationId || 'temp',
-        type: 'user',
-        transcription: trimmed,
-        userAudioUrl: opts?.userAudioUrl,
+      let acc = '';
+      await sendTextMessageStream(
+        trimmed,
+        conversationId,
+        conversationHistory,
+        {
+          userMessageId: userMessage.id,
+          aiMessageId: aiMessage.id,
+          isSuggestedReply: !!opts?.isSuggestedReply,
+          userCreatedAt: userMessage.createdAt,
+          aiCreatedAt: aiMessage.createdAt,
+        },
+        {
+          onDelta: (delta) => {
+            acc += delta;
+            onPatchMessage(aiMessage.id, { aiResponseText: acc });
+          },
+          onAudioDataUrl: (audioDataUrl) => {
+            try {
+              // Convert dataURL to blob URL for Howler playback consistency
+              const base64 = audioDataUrl.split('base64,')[1];
+              if (!base64) return;
+              const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+              const blob = new Blob([bytes], { type: 'audio/mpeg' });
+              const url = URL.createObjectURL(blob);
+              onPatchMessage(aiMessage.id, { audioUrl: url });
+            } catch (e) {
+              console.warn('Failed to handle streamed audioDataUrl (non-fatal):', e);
+            }
+          },
+        }
+      );
+      return { userMessageId: userMessage.id, aiMessageId: aiMessage.id };
+    } catch (e) {
+      // Fallback to non-stream endpoint
+      const response = await sendTextMessage(trimmed, conversationId, conversationHistory, {
+        userMessageId: userMessage.id,
+        aiMessageId: aiMessage.id,
         isSuggestedReply: !!opts?.isSuggestedReply,
-        createdAt: new Date(now).toISOString(),
-      };
-
-      const aiMessage: Message = {
-        id: `ai_${now + 1}`,
-        conversationId: conversationId || 'temp',
-        type: 'ai',
-        aiResponseText: response.aiResponseText,
-        createdAt: new Date(now + 1).toISOString(),
-      };
-
-      onMessageSent(userMessage);
-      setTimeout(() => onMessageSent(aiMessage), 30);
+        userCreatedAt: userMessage.createdAt,
+        aiCreatedAt: aiMessage.createdAt,
+      });
+      onPatchMessage(aiMessage.id, { aiResponseText: response.aiResponseText });
+      return { userMessageId: userMessage.id, aiMessageId: aiMessage.id };
     } finally {
       onProcessingChange(false);
     }
@@ -188,12 +265,16 @@ export default function MessageComposer({
     await new Promise((r) => setTimeout(r, 200));
     // Hard abort to ensure it doesn't auto-restart
     abortSpeech();
+    resetSpeech();
 
-    const textToSend = autoPunctuate(latestTranscriptRef.current || inputText);
+    // IMPORTANT: when user edits the input, inputText is the source of truth.
+    const textToSend = autoPunctuate((inputText || '').trim().length > 0 ? inputText : (latestTranscriptRef.current || ''));
 
     let userAudioUrl: string | undefined;
     if (isAudioRecordingRef.current) {
       const audioBlob = await stopAudioRecording();
+      // Store blob for later send (when autoplay is OFF)
+      pendingUserAudioBlobRef.current = audioBlob || null;
       userAudioUrl = audioBlob ? URL.createObjectURL(audioBlob) : undefined;
       isAudioRecordingRef.current = false;
     }
@@ -208,13 +289,24 @@ export default function MessageComposer({
     if (isListening) {
       const { textToSend, userAudioUrl } = await stopMicAndGetPayload();
       setInputText('');
+      latestTranscriptRef.current = '';
+      pendingUserAudioBlobRef.current = null;
+      userOverrodeInputRef.current = false;
       await sendUserText(textToSend, { userAudioUrl, isSuggestedReply: false });
       return;
     }
 
     const text = inputText;
     setInputText('');
-    await sendUserText(text, { isSuggestedReply: false });
+
+    // If we have pending voice audio from a stopped recording, attach it.
+    let userAudioUrl: string | undefined;
+    if (pendingUserAudioBlobRef.current) {
+      userAudioUrl = URL.createObjectURL(pendingUserAudioBlobRef.current);
+      pendingUserAudioBlobRef.current = null;
+    }
+    latestTranscriptRef.current = '';
+    await sendUserText(text, { userAudioUrl, isSuggestedReply: false });
   };
 
   const handleToggleMic = async () => {
@@ -239,21 +331,85 @@ export default function MessageComposer({
       setShowSuggestions(false);
       setInputText('');
       latestTranscriptRef.current = '';
-      // Start audio capture first, then speech recognition (more reliable on first tap)
-      await startAudioRecording();
-      isAudioRecordingRef.current = true;
-      setTimeout(() => {
-        // Ensure clean state
+      userOverrodeInputRef.current = false;
+
+      // IMPORTANT: start speech recognition in the same user gesture without setTimeout,
+      // otherwise some browsers require a second click.
+      if (isListening) {
+        stopListening();
         abortSpeech();
-        startListening();
-      }, 50);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      resetSpeech();
+      abortSpeech();
+      startListening();
+
+      // Start audio recording (doesn't need to block speech start)
+      startAudioRecording()
+        .then(() => {
+          isAudioRecordingRef.current = true;
+        })
+        .catch((e) => {
+          isAudioRecordingRef.current = false;
+          console.warn('Failed to start audio recording (non-fatal):', e);
+        });
       return;
     }
 
     // Stop recording and send
-    const { textToSend, userAudioUrl } = await stopMicAndGetPayload();
-    setInputText('');
-    await sendUserText(textToSend, { userAudioUrl, isSuggestedReply: false });
+    suppressSpeechToInputRef.current = true;
+    userOverrodeInputRef.current = false;
+
+    // Stop speech immediately; do NOT wait for audio blob to finish before sending (perf)
+    stopListening();
+    await new Promise((r) => setTimeout(r, 200));
+    abortSpeech();
+    resetSpeech();
+
+    const textToSend = autoPunctuate((inputText || '').trim().length > 0 ? inputText : (latestTranscriptRef.current || ''));
+
+    // Kick off audio stop in background
+    const audioPromise = isAudioRecordingRef.current ? stopAudioRecording() : Promise.resolve(null);
+    isAudioRecordingRef.current = false;
+
+    // Always keep the recognized text in the input after stopping.
+    setInputText(textToSend);
+
+    // Always keep the recognized text in the input after stopping.
+    // Only auto-send if autoplay is enabled.
+    if (autoPlayAudio) {
+      setInputText('');
+      latestTranscriptRef.current = '';
+      const ids = await sendUserText(textToSend, { userAudioUrl: undefined, isSuggestedReply: false });
+
+      // Background: upload user audio and patch message with final URL
+      audioPromise
+        .then(async (blob) => {
+          if (!blob || !ids?.userMessageId) return;
+          const { url } = await uploadMessageAudio({
+            conversationId,
+            messageId: ids.userMessageId,
+            kind: 'user',
+            blob,
+          });
+          onPatchMessage(ids.userMessageId, { userAudioUrl: url });
+        })
+        .catch((e) => console.warn('User audio upload failed (non-fatal):', e));
+    } else {
+      // Autoplay OFF: keep audio blob pending until user presses Send
+      audioPromise
+        .then((blob) => {
+          pendingUserAudioBlobRef.current = blob;
+        })
+        .catch(() => {
+          pendingUserAudioBlobRef.current = null;
+        });
+    }
+
+    // Re-enable speech->input updates after a short delay
+    setTimeout(() => {
+      suppressSpeechToInputRef.current = false;
+    }, 300);
   };
 
   const handleToggleSuggestions = async () => {
@@ -263,7 +419,8 @@ export default function MessageComposer({
       return;
     }
 
-    if (!lastAiMessageText.trim()) {
+    const lastAiText = lastAiMessageText || '';
+    if (!lastAiText.trim()) {
       setSuggestions([]);
       setShowSuggestions(true);
       return;
@@ -272,7 +429,7 @@ export default function MessageComposer({
     setShowSuggestions(true);
     setIsFetchingSuggestions(true);
     try {
-      const result = await getSuggestions(lastAiMessageText, conversationHistory);
+      const result = await getSuggestions(lastAiText, conversationHistory);
       setSuggestions(result.suggestions || []);
     } catch (e: any) {
       console.error(e);
@@ -336,7 +493,14 @@ export default function MessageComposer({
           <div className="flex items-center bg-white border border-gray-200/70 rounded-2xl px-4 py-2 shadow-sm">
             <input
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setInputText(v);
+                latestTranscriptRef.current = v; // source of truth for sending
+                if (isListening) {
+                  userOverrodeInputRef.current = true; // freeze STT->input so user edits aren't clobbered
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();

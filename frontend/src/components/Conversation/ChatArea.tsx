@@ -7,9 +7,10 @@ interface ChatAreaProps {
   isProcessing: boolean;
   onRequestFeedback: (messageId: string) => void | Promise<void>;
   feedbackLoadingIds: Set<string>;
+  autoPlayAudio: boolean;
 }
 
-export default function ChatArea({ messages, isProcessing, onRequestFeedback, feedbackLoadingIds }: ChatAreaProps) {
+export default function ChatArea({ messages, isProcessing, onRequestFeedback, feedbackLoadingIds, autoPlayAudio }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
@@ -102,6 +103,7 @@ export default function ChatArea({ messages, isProcessing, onRequestFeedback, fe
             isNewMessage={isNewMessage}
             onRequestFeedback={onRequestFeedback}
             isFeedbackLoading={feedbackLoadingIds.has(message.id)}
+            autoPlayAudio={autoPlayAudio}
           />
         );
       })}

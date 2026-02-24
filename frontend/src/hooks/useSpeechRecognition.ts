@@ -25,6 +25,9 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldRestartRef = useRef<boolean>(true); // Track if we should auto-restart
   const noSpeechErrorCountRef = useRef<number>(0); // Track consecutive no-speech errors
+  const isListeningRef = useRef<boolean>(false);
+  const startAttemptIdRef = useRef<number>(0);
+  const startRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Check browser support
@@ -50,6 +53,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
         lang: recognition.lang,
       });
       setIsListening(true);
+      isListeningRef.current = true;
       setError(null);
     };
 
@@ -154,6 +158,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
       setError(errorMessage);
       setIsListening(false);
+      isListeningRef.current = false;
       
       if (onError) {
         onError(errorMessage);
@@ -166,6 +171,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
         continuous: continuous,
       });
       setIsListening(false);
+      isListeningRef.current = false;
       
       // If continuous mode and we should restart, restart automatically
       if (continuous && shouldRestartRef.current && recognitionRef.current) {
@@ -191,6 +197,10 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     recognitionRef.current = recognition;
 
     return () => {
+      if (startRetryTimerRef.current) {
+        clearTimeout(startRetryTimerRef.current);
+        startRetryTimerRef.current = null;
+      }
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
@@ -232,8 +242,36 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       noSpeechErrorCountRef.current = 0; // Reset error count
       setTranscript('');
       setError(null);
+      startAttemptIdRef.current += 1;
+      const attemptId = startAttemptIdRef.current;
       recognitionRef.current.start();
       console.log('🎤 Speech recognition start() called');
+
+      // If onstart doesn't fire quickly (some browsers), retry once.
+      if (startRetryTimerRef.current) {
+        clearTimeout(startRetryTimerRef.current);
+        startRetryTimerRef.current = null;
+      }
+      startRetryTimerRef.current = setTimeout(() => {
+        if (attemptId !== startAttemptIdRef.current) return;
+        if (isListeningRef.current) return;
+        if (!shouldRestartRef.current) return;
+        try {
+          console.warn('Speech recognition did not start, retrying...');
+          recognitionRef.current?.abort();
+          setTimeout(() => {
+            try {
+              if (attemptId !== startAttemptIdRef.current) return;
+              if (!shouldRestartRef.current) return;
+              recognitionRef.current?.start();
+            } catch (e) {
+              console.warn('Speech recognition retry failed:', e);
+            }
+          }, 80);
+        } catch (e) {
+          console.warn('Speech recognition retry threw:', e);
+        }
+      }, 350);
     } catch (error: any) {
       // If error is "already started", try aborting and restarting
       if (error.message?.includes('already') || error.name === 'InvalidStateError') {
@@ -290,6 +328,13 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     }
   };
 
+  const reset = () => {
+    setTranscript('');
+    setFinalTranscript('');
+    setInterimTranscript('');
+    setError(null);
+  };
+
   return {
     isListening,
     transcript,
@@ -299,5 +344,6 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     startListening,
     stopListening,
     abort,
+    reset,
   };
 }

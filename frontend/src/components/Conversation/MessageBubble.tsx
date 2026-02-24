@@ -63,6 +63,7 @@ interface MessageBubbleProps {
   isNewMessage?: boolean; // Indicates if this is a newly added message
   onRequestFeedback: (messageId: string) => void | Promise<void>;
   isFeedbackLoading: boolean;
+  autoPlayAudio: boolean;
 }
 
 export default function MessageBubble({
@@ -70,6 +71,7 @@ export default function MessageBubble({
   isNewMessage = false,
   onRequestFeedback,
   isFeedbackLoading,
+  autoPlayAudio,
 }: MessageBubbleProps) {
   const [showExplanation, setShowExplanation] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -171,7 +173,8 @@ export default function MessageBubble({
         <AudioPlayer
           audioUrl={message.audioUrl}
           text={message.aiResponseText}
-          autoPlay={isNewMessage && message.type === 'ai'} // Auto-play new AI messages
+          autoPlay={autoPlayAudio} // AudioPlayer itself ensures "once per message"
+          autoPlayKey={message.id}
           onShowTranslation={async () => {
             if (!showTranslation) {
               setShowTranslation(true);

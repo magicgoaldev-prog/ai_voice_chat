@@ -20,7 +20,8 @@
     "openai": "^4.20.1",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "@supabase/supabase-js": "^2.49.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

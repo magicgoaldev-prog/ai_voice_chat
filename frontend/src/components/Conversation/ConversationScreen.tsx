@@ -3,16 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import ConversationView from './ConversationView';
 import { Conversation, Message } from '../../types';
-import { getFeedback } from '../../services/api';
 import {
-  getConversations,
-  createNewConversation,
-  deleteConversation,
-  saveMessage,
-  getConversation,
-  loadMessagesWithAudio,
-  loadMessageWithAudio,
-} from '../../utils/conversationStorage';
+  deleteConversation as apiDeleteConversation,
+  getConversationMessages,
+  getFeedback,
+  listConversations,
+  resetConversation,
+  startConversation,
+  uploadMessageAudio,
+} from '../../services/api';
+
+function generateConversationId(): string {
+  return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function getConversationTitle(conversations: Conversation[], id: string | null): string {
+  if (!id) return 'Conversation';
+  return conversations.find((c) => c.id === id)?.title || 'Conversation';
+}
 
 export default function ConversationScreen() {
   const navigate = useNavigate();
@@ -23,6 +31,24 @@ export default function ConversationScreen() {
   const [feedbackLoadingIds, setFeedbackLoadingIds] = useState<Set<string>>(new Set());
   const [isMobileView, setIsMobileView] = useState(false);
   const [showConversationList, setShowConversationList] = useState(true);
+  const [autoPlayAudio, setAutoPlayAudio] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('eng_ai_voice_autoplay_audio');
+      return v ? v === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('eng_ai_voice_autoplay_audio', String(autoPlayAudio));
+    } catch {
+      // ignore
+    }
+  }, [autoPlayAudio]);
+
+  const [restartNonce, setRestartNonce] = useState(0);
 
   // Detect mobile/tablet/desktop
   useEffect(() => {
@@ -40,27 +66,30 @@ export default function ConversationScreen() {
 
   // Load conversations on mount
   useEffect(() => {
-    const loadedConversations = getConversations();
-    setConversations(loadedConversations);
-    
-    // If no conversations, create one
-    if (loadedConversations.length === 0) {
-      const newConv = createNewConversation();
-      setConversations([newConv]);
-      setCurrentConversationId(newConv.id);
-      setShowConversationList(false);
-    } else if (loadedConversations.length > 0 && !currentConversationId) {
-      // Load most recent conversation
-      setCurrentConversationId(loadedConversations[0].id);
-      setShowConversationList(false);
-    }
+    const boot = async () => {
+      const loaded = await listConversations();
+      setConversations(loaded);
+
+      if (loaded.length === 0) {
+        const id = generateConversationId();
+        await startConversation(id, 'New Conversation');
+        const next = await listConversations();
+        setConversations(next);
+        setCurrentConversationId(id);
+        setShowConversationList(false);
+      } else if (!currentConversationId) {
+        setCurrentConversationId(loaded[0].id);
+        setShowConversationList(false);
+      }
+    };
+    boot().catch((e) => console.error('Failed to boot conversations:', e));
   }, []);
 
   // Load messages when conversation changes
   useEffect(() => {
     if (currentConversationId) {
       const loadMessages = async () => {
-        const loadedMessages = await loadMessagesWithAudio(currentConversationId);
+        const loadedMessages = await getConversationMessages(currentConversationId);
         setMessages(loadedMessages);
         setShowConversationList(false);
       };
@@ -69,11 +98,35 @@ export default function ConversationScreen() {
   }, [currentConversationId]);
 
   const handleCreateConversation = () => {
-    const newConv = createNewConversation();
-    setConversations((prev) => [newConv, ...prev]);
-    setCurrentConversationId(newConv.id);
+    const create = async () => {
+      const id = generateConversationId();
+      await startConversation(id, 'New Conversation');
+      const next = await listConversations();
+      setConversations(next);
+      setCurrentConversationId(id);
+      setMessages([]);
+      setShowConversationList(false);
+    };
+    create().catch((e) => console.error('Failed to create conversation:', e));
+  };
+
+  const handleRestartConversation = () => {
+    if (!currentConversationId) return;
+
+    const conversationId = currentConversationId;
+    // Immediately clear UI
     setMessages([]);
-    setShowConversationList(false);
+    setRestartNonce((n) => n + 1);
+
+    (async () => {
+      await resetConversation(conversationId);
+      const [nextConversations, nextMessages] = await Promise.all([
+        listConversations(),
+        getConversationMessages(conversationId),
+      ]);
+      setConversations(nextConversations);
+      setMessages(nextMessages);
+    })().catch((e) => console.error('Failed to restart conversation:', e));
   };
 
   const handleSelectConversation = (conversationId: string) => {
@@ -84,17 +137,18 @@ export default function ConversationScreen() {
   };
 
   const handleDeleteConversation = async (conversationId: string) => {
-    await deleteConversation(conversationId);
-    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+    await apiDeleteConversation(conversationId);
+    const next = (await listConversations()) || [];
+    setConversations(next);
     
     if (currentConversationId === conversationId) {
-      const remaining = conversations.filter((c) => c.id !== conversationId);
-      if (remaining.length > 0) {
-        setCurrentConversationId(remaining[0].id);
-      } else {
-        const newConv = createNewConversation();
-        setConversations([newConv]);
-        setCurrentConversationId(newConv.id);
+      if (next.length > 0) setCurrentConversationId(next[0].id);
+      else {
+        const id = generateConversationId();
+        await startConversation(id, 'New Conversation');
+        const refreshed = await listConversations();
+        setConversations(refreshed);
+        setCurrentConversationId(id);
         setMessages([]);
       }
     }
@@ -111,34 +165,96 @@ export default function ConversationScreen() {
         );
       });
       
-      // All storage operations in background - don't block UI rendering
-      // Use setTimeout to ensure UI update happens first
+      // All persistence operations in background - don't block UI rendering
       setTimeout(() => {
-        // Save message in background (don't block UI)
-        saveMessage(currentConversationId, newMessage).catch((error) => {
-          console.error('Error saving message:', error);
-        });
-        
-        // If message has audio, handle it in background
+        // If message has local blob audio, upload to server in background and replace URL
         if (newMessage.userAudioUrl && newMessage.userAudioUrl.startsWith('blob:')) {
-          // Save audio to IndexedDB in background
-          loadMessageWithAudio(newMessage).then((loadedMessage: Message) => {
-            // Update the message with the loaded audio URL
-            setMessages((prev) => 
-              prev.map((msg) => 
-                msg.id === loadedMessage.id ? loadedMessage : msg
-              )
-            );
-          }).catch((error: any) => {
-            console.error('Error loading audio:', error);
-          });
+          fetch(newMessage.userAudioUrl)
+            .then((r) => r.blob())
+            .then(async (blob) => {
+              const { url } = await uploadMessageAudio({
+                conversationId: currentConversationId,
+                messageId: newMessage.id,
+                kind: 'user',
+                blob,
+              });
+              setMessages((prev) => prev.map((m) => (m.id === newMessage.id ? { ...m, userAudioUrl: url } : m)));
+            })
+            .catch((e) => console.error('Audio upload failed:', e));
         }
-        
-        // Update conversations list in background
-        const updatedConversations = getConversations();
-        setConversations(updatedConversations);
+        // Refresh conversations list (lastMessage/updatedAt)
+        listConversations()
+          .then((next) => setConversations(next))
+          .catch((e) => console.error('Failed to refresh conversations:', e));
+
+        // If this is an AI message, its server-side TTS URL may be attached asynchronously.
+        // Refresh messages in a MERGE fashion to pick up ai_audio_url without clobbering
+        // streaming AI text already shown in the UI.
+        if (newMessage.type === 'ai') {
+          const mergeFromServer = async (): Promise<boolean> => {
+            try {
+              const latest = await getConversationMessages(currentConversationId);
+              const srvHasAudio = !!latest.find((m) => m.id === newMessage.id)?.audioUrl;
+              setMessages((prev) => {
+                const prevById = new Map(prev.map((m) => [m.id, m]));
+                const merged = latest.map((srv) => {
+                  const local = prevById.get(srv.id);
+                  if (!local) return srv;
+
+                  const mergedAiText =
+                    (srv.aiResponseText || '').trim().length === 0 && (local.aiResponseText || '').trim().length > 0
+                      ? local.aiResponseText
+                      : (srv.aiResponseText || '').length >= (local.aiResponseText || '').length
+                        ? srv.aiResponseText
+                        : local.aiResponseText;
+
+                  return {
+                    ...local,
+                    ...srv,
+                    // Preserve the longer / non-empty AI text (streaming)
+                    aiResponseText: mergedAiText,
+                    // Prefer server URLs when available
+                    userAudioUrl:
+                      srv.userAudioUrl && srv.userAudioUrl.trim().length > 0 ? srv.userAudioUrl : local.userAudioUrl,
+                    audioUrl: srv.audioUrl && srv.audioUrl.trim().length > 0 ? srv.audioUrl : local.audioUrl,
+                  };
+                });
+
+                // Keep any purely-local messages that aren't on server yet
+                const latestIds = new Set(latest.map((m) => m.id));
+                const onlyLocal = prev.filter((m) => !latestIds.has(m.id));
+                const combined = [...merged, ...onlyLocal];
+                return combined.sort(
+                  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                );
+              });
+              return srvHasAudio;
+            } catch (e) {
+              console.warn('Failed to refresh messages for AI audio URL:', e);
+              return false;
+            }
+          };
+
+          // Poll for AI audio URL for up to ~30s (best-effort). This avoids full UI regressions.
+          (async () => {
+            let tries = 0;
+            const maxTries = 15;
+            const intervalMs = 2000;
+            await new Promise((r) => setTimeout(r, 1500));
+            while (tries < maxTries) {
+              tries += 1;
+              const hasAudio = await mergeFromServer();
+              if (hasAudio) break;
+              await new Promise((r) => setTimeout(r, intervalMs));
+            }
+          })();
+        }
       }, 0);
     }
+  };
+
+  const handlePatchMessage = (messageId: string, patch: Partial<Message>) => {
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, ...patch } : m)));
   };
 
   const handleRequestFeedback = async (messageId: string) => {
@@ -150,7 +266,10 @@ export default function ConversationScreen() {
 
     setFeedbackLoadingIds((prev) => new Set(prev).add(messageId));
     try {
-      const result = await getFeedback(target.transcription);
+      const result = await getFeedback(target.transcription, {
+        conversationId: currentConversationId || undefined,
+        messageId,
+      });
       const updatedMessage: Message = {
         ...target,
         correctedText: result.correctedText,
@@ -160,14 +279,7 @@ export default function ConversationScreen() {
       // Update UI immediately
       setMessages((prev) => prev.map((m) => (m.id === messageId ? updatedMessage : m)));
 
-      // Persist in background
-      if (currentConversationId) {
-        setTimeout(() => {
-          saveMessage(currentConversationId, updatedMessage).catch((error) => {
-            console.error('Error saving feedback message:', error);
-          });
-        }, 0);
-      }
+      // Feedback is persisted by backend when conversationId+messageId are provided
     } catch (error) {
       console.error('Feedback error:', error);
       alert('Failed to get feedback. Please try again.');
@@ -218,7 +330,7 @@ export default function ConversationScreen() {
                 ← Back
               </button>
               <h1 className="text-lg font-bold text-white">
-                {getConversation(currentConversationId || '')?.title || 'Conversation'}
+                {getConversationTitle(conversations, currentConversationId)}
               </h1>
             </div>
             <button
@@ -239,6 +351,11 @@ export default function ConversationScreen() {
                 onProcessingChange={setIsProcessing}
                 onRequestFeedback={handleRequestFeedback}
                 feedbackLoadingIds={feedbackLoadingIds}
+                autoPlayAudio={autoPlayAudio}
+                onToggleAutoPlayAudio={setAutoPlayAudio}
+                onRestartConversation={handleRestartConversation}
+                restartNonce={restartNonce}
+                onPatchMessage={handlePatchMessage}
               />
             </div>
           )}
@@ -278,13 +395,6 @@ export default function ConversationScreen() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {currentConversationId ? (
           <>
-            {/* Top Bar */}
-            <div className="bg-white/60 backdrop-blur-sm shadow-sm px-4 py-4 border-b border-gray-200/60 flex-shrink-0">
-              <h2 className="text-lg font-semibold text-gray-800">
-                {getConversation(currentConversationId)?.title || 'Conversation'}
-              </h2>
-            </div>
-            
             <div className="flex-1 min-h-0">
               <ConversationView
                 messages={messages}
@@ -294,8 +404,11 @@ export default function ConversationScreen() {
                 onProcessingChange={setIsProcessing}
                 onRequestFeedback={handleRequestFeedback}
                 feedbackLoadingIds={feedbackLoadingIds}
-                onRequestFeedback={handleRequestFeedback}
-                feedbackLoadingIds={feedbackLoadingIds}
+                autoPlayAudio={autoPlayAudio}
+                onToggleAutoPlayAudio={setAutoPlayAudio}
+                onRestartConversation={handleRestartConversation}
+                restartNonce={restartNonce}
+                onPatchMessage={handlePatchMessage}
               />
             </div>
           </>
