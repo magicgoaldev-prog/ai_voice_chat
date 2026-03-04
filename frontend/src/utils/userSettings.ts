@@ -1,10 +1,21 @@
 export type EnglishLevel = 'beginner' | 'intermediate' | 'advanced';
 
+export interface AISpeaker {
+  id: string;
+  name: string;
+  photo: string; // URL or data URL
+  voiceName: string; // SpeechSynthesisVoice name
+  gender?: 'male' | 'female';
+  age?: 'young' | 'adult' | 'senior';
+}
+
 export type UserSettings = {
   /** Google Translate target language code (e.g., 'ru', 'ko') */
   targetLanguage: string;
   /** Affects AI response style */
   englishLevel: EnglishLevel;
+  /** Selected AI Speaker ID */
+  aiSpeakerId?: string;
 };
 
 const SETTINGS_KEY = 'eng_ai_voice_user_settings';
@@ -27,7 +38,11 @@ export function loadUserSettings(): UserSettings {
       parsed?.englishLevel === 'beginner' || parsed?.englishLevel === 'intermediate' || parsed?.englishLevel === 'advanced'
         ? parsed.englishLevel
         : DEFAULT_USER_SETTINGS.englishLevel;
-    return { targetLanguage, englishLevel };
+    const aiSpeakerId =
+      typeof parsed?.aiSpeakerId === 'string' && parsed.aiSpeakerId.trim().length > 0
+        ? parsed.aiSpeakerId.trim()
+        : undefined;
+    return { targetLanguage, englishLevel, aiSpeakerId };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };
   }
