@@ -3,7 +3,7 @@ import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import { getSuggestions, sendTextMessage, sendTextMessageStream, uploadMessageAudio } from '../../services/api';
 import { Message } from '../../types';
-import { checkMicrophonePermission, getMicrophonePermissionInstructions, requiresHTTPS } from '../../utils/permissionHelper';
+import { requestMicrophoneAccess, getMicrophonePermissionInstructions, requiresHTTPS } from '../../utils/permissionHelper';
 
 interface MessageComposerProps {
   conversationId: string;
@@ -321,7 +321,7 @@ export default function MessageComposer({
         return;
       }
 
-      const permissionCheck = await checkMicrophonePermission();
+      const permissionCheck = await requestMicrophoneAccess();
       if (!permissionCheck.granted) {
         const instructions = getMicrophonePermissionInstructions();
         alert(`❌ Microphone Permission Required\n\n${permissionCheck.error || ''}\n\n${instructions}`);
@@ -440,7 +440,7 @@ export default function MessageComposer({
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto relative">
+    <div className="w-full max-w-4xl mx-auto relative min-w-0">
       {showSuggestions && (
         <div className="mb-4 bg-white/95 backdrop-blur-sm border border-gray-200/70 rounded-2xl shadow-lg p-4">
           <p className="text-sm font-semibold text-gray-700 mb-3">Here are some suggested responses:</p>
@@ -468,10 +468,10 @@ export default function MessageComposer({
         </div>
       )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 w-full min-w-0">
         <button
           onClick={handleToggleMic}
-          className={`w-11 h-11 rounded-full flex items-center justify-center transition-all ${
+          className={`w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center transition-all ${
             isListening
               ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-lg shadow-red-500/30'
               : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-md shadow-blue-500/20 hover:from-blue-600 hover:to-blue-700'
@@ -483,14 +483,14 @@ export default function MessageComposer({
 
         <button
           onClick={handleToggleSuggestions}
-          className="w-11 h-11 rounded-full bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 transition-colors flex items-center justify-center shadow-sm"
+          className="w-11 h-11 flex-shrink-0 rounded-full bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 flex items-center justify-center shadow-sm"
           aria-label="Suggested replies"
         >
           <HamburgerIcon />
         </button>
 
-        <div className="flex-1">
-          <div className="flex items-center bg-white border border-gray-200/70 rounded-2xl px-4 py-2 shadow-sm">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center bg-white border border-gray-200/70 rounded-2xl px-3 sm:px-4 py-2 shadow-sm min-w-0">
             <input
               value={inputText}
               onChange={(e) => {
@@ -509,12 +509,12 @@ export default function MessageComposer({
               }}
               disabled={isProcessing}
               placeholder={isListening ? 'Listening…' : 'Type a response'}
-              className="flex-1 bg-transparent outline-none text-sm text-gray-800 placeholder:text-gray-400 py-2"
+              className="flex-1 min-w-0 bg-transparent outline-none text-sm text-gray-800 placeholder:text-gray-400 py-2 w-0"
             />
             <button
               onClick={handleSend}
               disabled={isProcessing || !inputText.trim()}
-              className="ml-3 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 disabled:from-gray-300 disabled:to-gray-300 text-white flex items-center justify-center transition-all active:scale-95"
+              className="ml-2 sm:ml-3 w-10 h-10 flex-shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 disabled:from-gray-300 disabled:to-gray-300 text-white flex items-center justify-center transition-all active:scale-95"
               aria-label="Send"
             >
               <SendIcon />

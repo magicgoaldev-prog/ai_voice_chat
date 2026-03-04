@@ -5,7 +5,7 @@ import { sendTextMessage } from '../../services/api';
 import { Message } from '../../types';
 import { 
   requiresHTTPS, 
-  checkMicrophonePermission, 
+  requestMicrophoneAccess, 
   getMicrophonePermissionInstructions 
 } from '../../utils/permissionHelper';
 import { runSpeechDiagnostics, logDiagnostics } from '../../utils/speechDiagnostics';
@@ -244,8 +244,7 @@ export default function RecordButton({
         return;
       }
 
-      // Check microphone permission first
-      const permissionCheck = await checkMicrophonePermission();
+      const permissionCheck = await requestMicrophoneAccess();
       if (!permissionCheck.granted) {
         const instructions = getMicrophonePermissionInstructions();
         const message = 

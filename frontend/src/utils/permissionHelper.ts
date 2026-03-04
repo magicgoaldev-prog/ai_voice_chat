@@ -39,6 +39,35 @@ export function requiresHTTPS(): boolean {
   return isMobile() && !isLocalhost() && window.location.protocol !== 'https:';
 }
 
+/**
+ * Request microphone access. This triggers the browser's permission prompt
+ * (e.g. on mobile). Prefer this when starting voice input so the user sees the prompt.
+ */
+export async function requestMicrophoneAccess(): Promise<{
+  granted: boolean;
+  error?: string;
+}> {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return { granted: false, error: 'Microphone access is not supported in this browser.' };
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return { granted: true };
+  } catch (error: any) {
+    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+      return {
+        granted: false,
+        error: 'Microphone permission denied. Please allow microphone access when prompted.'
+      };
+    }
+    if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+      return { granted: false, error: 'No microphone found. Please connect a microphone and try again.' };
+    }
+    return { granted: false, error: error?.message ? `Microphone: ${error.message}` : 'Could not access microphone.' };
+  }
+}
+
 export async function checkMicrophonePermission(): Promise<{
   granted: boolean;
   error?: string;
@@ -50,11 +79,11 @@ export async function checkMicrophonePermission(): Promise<{
         const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
         return {
           granted: result.state === 'granted',
-          error: result.state === 'denied' 
+          error: result.state === 'denied'
             ? 'Microphone permission is denied. Please enable it in browser settings.'
             : result.state === 'prompt'
-            ? 'Microphone permission is not set. Please allow when prompted.'
-            : undefined
+              ? 'Microphone permission is not set. Please allow when prompted.'
+              : undefined
         };
       } catch (error) {
         // Permissions API might not support 'microphone' in all browsers
@@ -62,29 +91,8 @@ export async function checkMicrophonePermission(): Promise<{
       }
     }
 
-    // Fallback: Try to access microphone
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop()); // Stop immediately
-      return { granted: true };
-    } catch (error: any) {
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        return {
-          granted: false,
-          error: 'Microphone permission denied. Please allow microphone access in your browser settings.'
-        };
-      }
-      if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-        return {
-          granted: false,
-          error: 'No microphone found. Please connect a microphone and try again.'
-        };
-      }
-      return {
-        granted: false,
-        error: `Failed to access microphone: ${error.message}`
-      };
-    }
+    // Fallback: Try to access microphone (this also triggers the permission prompt)
+    return requestMicrophoneAccess();
   } catch (error: any) {
     return {
       granted: false,
