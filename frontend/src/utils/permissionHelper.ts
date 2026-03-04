@@ -36,8 +36,6 @@ export function isMobile(): boolean {
 }
 
 export function requiresHTTPS(): boolean {
-  // 모바일 브라우저는 HTTPS 필수 (localhost 제외)
-  // 데스크톱은 localhost에서 HTTP 허용
   return isMobile() && !isLocalhost() && window.location.protocol !== 'https:';
 }
 
