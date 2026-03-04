@@ -132,6 +132,12 @@ export default function AudioPlayer({
       stopSpeaking();
       setIsPlaying(false);
     } else {
+      const alreadySpeaking =
+        window.speechSynthesis.speaking ||
+        (window.speechSynthesis as { pending?: boolean }).pending === true;
+      if (alreadySpeaking) {
+        return;
+      }
       try {
         setIsPlaying(true);
         console.log('🎵 Starting TTS playback:', { 
