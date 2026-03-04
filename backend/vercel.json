@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "framework": null,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/health", "destination": "/api" }
+  ],
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
+}
