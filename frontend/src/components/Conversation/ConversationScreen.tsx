@@ -55,20 +55,32 @@ export default function ConversationScreen() {
     const checkMobile = () => {
       setIsMobileView(window.innerWidth < 768);
       if (window.innerWidth >= 768) {
-        setShowConversationList(true); // Always show sidebar on desktop/tablet
+        setShowConversationList(true);
       }
     };
-    
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Load conversations on mount
+  // Mobile: handle phone back button same as page Back (popstate = return to list)
+  useEffect(() => {
+    if (!isMobileView) return;
+    const onPopState = () => {
+      setShowConversationList(true);
+      setCurrentConversationId(null);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [isMobileView]);
+
+  // Load conversations on mount. On mobile, stay on list (no auto-enter conversation).
   useEffect(() => {
     const boot = async () => {
       const loaded = await listConversations();
       setConversations(loaded);
+      const isMobile = window.innerWidth < 768;
+      if (isMobile) return;
 
       if (loaded.length === 0) {
         const id = generateConversationId();
@@ -106,6 +118,9 @@ export default function ConversationScreen() {
       setCurrentConversationId(id);
       setMessages([]);
       setShowConversationList(false);
+      if (isMobileView) {
+        window.history.pushState({ conversationView: true }, '', window.location.pathname);
+      }
     };
     create().catch((e) => console.error('Failed to create conversation:', e));
   };
@@ -133,6 +148,7 @@ export default function ConversationScreen() {
     setCurrentConversationId(conversationId);
     if (isMobileView) {
       setShowConversationList(false);
+      window.history.pushState({ conversationView: true }, '', window.location.pathname);
     }
   };
 
@@ -299,7 +315,7 @@ export default function ConversationScreen() {
         <div className="flex flex-col h-screen bg-gray-50">
           {/* Top Bar */}
           <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between">
-            <h1 className="text-lg font-bold text-white leading-none">Conversations</h1>
+            <h1 className="text-lg font-bold text-white leading-none">SayIt</h1>
             <button
               onClick={() => navigate('/settings')}
               className="text-white hover:text-white text-sm font-medium px-3 h-8 rounded-lg hover:bg-white/20 transition-colors flex items-center"
@@ -324,12 +340,7 @@ export default function ConversationScreen() {
           <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between flex-shrink-0">
             <div className="flex items-center">
               <button
-                onClick={() => {
-                  // Replace current history entry to conversation list
-                  setShowConversationList(true);
-                  setCurrentConversationId(null);
-                  window.history.replaceState(null, '', window.location.pathname);
-                }}
+                onClick={() => window.history.back()}
                 className="mr-4 text-white/90 hover:text-white font-medium leading-none"
               >
                 ← Back
