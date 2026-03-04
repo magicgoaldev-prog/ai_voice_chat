@@ -140,10 +140,6 @@ export default function Settings() {
     });
   }, []);
 
-  const selectedSpeaker = useMemo(() => {
-    return aiSpeakers.find((s) => s.id === aiSpeakerId) || aiSpeakers[0];
-  }, [aiSpeakers, aiSpeakerId]);
-
   const handlePreviewVoice = async (speaker: AISpeaker) => {
     if (previewingSpeakerId === speaker.id) {
       // Stop preview

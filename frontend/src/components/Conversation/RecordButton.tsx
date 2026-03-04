@@ -2,11 +2,9 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { sendTextMessage } from '../../services/api';
-import { speakText } from '../../utils/speechSynthesis';
 import { Message } from '../../types';
 import { 
   requiresHTTPS, 
-  isMobile, 
   checkMicrophonePermission, 
   getMicrophonePermissionInstructions 
 } from '../../utils/permissionHelper';

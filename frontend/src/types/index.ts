@@ -39,6 +39,8 @@ export interface Message {
 export interface ConversationResponse {
   transcription?: string;
   aiResponseText: string;
+  correctedText?: string;
+  explanation?: string;
 }
 
 export interface FeedbackResponse {

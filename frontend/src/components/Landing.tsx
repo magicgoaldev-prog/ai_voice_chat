@@ -32,11 +32,6 @@ export default function Landing() {
             onClick={() => {
               // For MVP, simulate Google login
               // In production, integrate with Google OAuth
-              const mockUser = {
-                id: 'user-' + Date.now(),
-                email: 'user@example.com',
-                name: 'Test User',
-              };
               // This would call actual Google OAuth in production
               console.log('Google login would be implemented here');
             }}

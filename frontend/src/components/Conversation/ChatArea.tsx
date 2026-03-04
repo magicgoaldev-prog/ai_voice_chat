@@ -92,7 +92,7 @@ export default function ChatArea({ messages, isProcessing, onRequestFeedback, fe
           <p className="text-sm md:text-base text-gray-500">Tap the microphone to start, tap again to send</p>
         </div>
       )}
-      {messages.map((message, index) => {
+      {messages.map((message) => {
         // Mark AI message as new if it matches the newly added AI message ID
         const isNewMessage = message.type === 'ai' && message.id === newAiMessageIdRef.current;
         

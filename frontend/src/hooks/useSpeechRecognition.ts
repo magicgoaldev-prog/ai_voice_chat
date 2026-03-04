@@ -22,7 +22,8 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   const [finalTranscript, setFinalTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Web Speech API types not in TS lib
+  const recognitionRef = useRef<any>(null);
   const shouldRestartRef = useRef<boolean>(true); // Track if we should auto-restart
   const noSpeechErrorCountRef = useRef<number>(0); // Track consecutive no-speech errors
   const isListeningRef = useRef<boolean>(false);
@@ -57,7 +58,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       setError(null);
     };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: { results: Array<{ 0: { transcript: string }; isFinal: boolean; length: number }>; resultIndex: number }) => {
       // Reset no-speech error count when we get results
       noSpeechErrorCountRef.current = 0;
       
@@ -93,7 +94,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       }
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: { error: string; message?: string; timeStamp?: number; type?: string }) => {
       let errorMessage = 'Speech recognition error occurred.';
       
       // Detailed error logging for debugging

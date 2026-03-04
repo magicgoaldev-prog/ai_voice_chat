@@ -300,7 +300,7 @@ export async function getSuggestions(
 
 // Keep for backward compatibility, but now uses text instead of audio
 export async function sendVoiceMessage(
-  audioBlob: Blob
+  _audioBlob: Blob
 ): Promise<ConversationResponse> {
   // This function is deprecated - use sendTextMessage instead
   throw new Error('sendVoiceMessage is deprecated. Use Web Speech API for transcription.');
