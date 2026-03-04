@@ -4,6 +4,9 @@ import ErrorExplanation from './ErrorExplanation';
 import { Message } from '../../types';
 import { translateText } from '../../services/api';
 import { loadUserSettings } from '../../utils/userSettings';
+import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../../utils/aiSpeakers';
+import { AISpeaker } from '../../utils/userSettings';
+import { waitForVoices } from '../../utils/speechSynthesis';
 
 // Simple audio player for user recordings
 function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
@@ -79,6 +82,17 @@ export default function MessageBubble({
   const [showTranslation, setShowTranslation] = useState(false);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [selectedSpeaker, setSelectedSpeaker] = useState<AISpeaker | null>(null);
+
+  // Load selected speaker info
+  useEffect(() => {
+    waitForVoices().then((voices) => {
+      const settings = loadUserSettings();
+      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices);
+      const speaker = speakers.find((s) => s.id === settings.aiSpeakerId) || speakers[0];
+      setSelectedSpeaker(speaker || null);
+    });
+  }, []);
 
   // Reset UI toggles when message changes
   useEffect(() => {
@@ -102,6 +116,15 @@ export default function MessageBubble({
   if (message.type === 'user') {
     return (
       <div className="flex flex-col items-end space-y-2">
+        {/* User name and avatar - above bubble, right side */}
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs text-gray-600 font-medium">me</span>
+          <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+            </svg>
+          </div>
+        </div>
         <div className="bg-blue-100 rounded-2xl rounded-tr-none px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm border border-blue-200/60">
           {message.transcription ? (
             <p className="text-sm text-gray-900 break-words whitespace-pre-wrap leading-relaxed">
@@ -157,7 +180,7 @@ export default function MessageBubble({
             </p>
             {message.explanation && (
               <ErrorExplanation
-                explanation={message.explanation}
+                explanation={message.explanation || ''}
                 isOpen={showExplanation}
                 onToggle={() => setShowExplanation(!showExplanation)}
               />
@@ -170,48 +193,59 @@ export default function MessageBubble({
 
   return (
       <div className="flex flex-col items-start space-y-2">
-      <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200/60 rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm">
-        <AudioPlayer
-          audioUrl={message.audioUrl}
-          text={message.aiResponseText}
-          autoPlay={autoPlayAudio} // AudioPlayer itself ensures "once per message"
-          autoPlayKey={message.id}
-          onShowTranslation={async () => {
-            if (!showTranslation) {
-              setShowTranslation(true);
-              if (message.aiResponseText && !translatedText) {
-                setIsTranslating(true);
-                try {
-                  const { targetLanguage } = loadUserSettings();
-                  const result = await translateText(message.aiResponseText, targetLanguage);
-                  setTranslatedText(result.translatedText);
-                } catch (error) {
-                  console.error('Translation error:', error);
-                  setTranslatedText('Translation failed');
-                } finally {
-                  setIsTranslating(false);
-                }
-              }
-            } else {
-              setShowTranslation(false);
-            }
-          }}
-        />
-        {showTranslation && message.aiResponseText && (
-          <div className="mt-2 pt-2 border-t border-gray-200">
-            {isTranslating ? (
-              <p className="text-xs text-gray-500">Translating...</p>
-            ) : translatedText ? (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Translation:</p>
-                <p className="text-sm text-gray-700">{translatedText}</p>
-              </div>
-            ) : (
-              <p className="text-xs text-gray-500">Click Translate to see translation</p>
-            )}
+        {/* AI speaker name and avatar - above bubble, left side */}
+        {selectedSpeaker && (
+          <div className="flex items-center gap-2 mb-1">
+            <img
+              src={selectedSpeaker.photo}
+              alt={selectedSpeaker.name}
+              className="w-8 h-8 rounded-full object-cover border-2 border-gray-200"
+            />
+            <span className="text-xs text-gray-600 font-medium">{selectedSpeaker.name}</span>
           </div>
         )}
-      </div>
+        <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200/60 rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm">
+          <AudioPlayer
+            audioUrl={message.audioUrl}
+            text={message.aiResponseText}
+            autoPlay={autoPlayAudio} // AudioPlayer itself ensures "once per message"
+            autoPlayKey={message.id}
+            onShowTranslation={async () => {
+              if (!showTranslation) {
+                setShowTranslation(true);
+                if (message.aiResponseText && !translatedText) {
+                  setIsTranslating(true);
+                  try {
+                    const { targetLanguage } = loadUserSettings();
+                    const result = await translateText(message.aiResponseText, targetLanguage);
+                    setTranslatedText(result.translatedText);
+                  } catch (error) {
+                    console.error('Translation error:', error);
+                    setTranslatedText('Translation failed');
+                  } finally {
+                    setIsTranslating(false);
+                  }
+                }
+              } else {
+                setShowTranslation(false);
+              }
+            }}
+          />
+          {showTranslation && message.aiResponseText && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              {isTranslating ? (
+                <p className="text-xs text-gray-500">Translating...</p>
+              ) : translatedText ? (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Translation:</p>
+                  <p className="text-sm text-gray-700">{translatedText}</p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">Click Translate to see translation</p>
+              )}
+            </div>
+          )}
+        </div>
     </div>
   );
 }

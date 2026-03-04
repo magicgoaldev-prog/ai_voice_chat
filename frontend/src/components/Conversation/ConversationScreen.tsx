@@ -324,7 +324,12 @@ export default function ConversationScreen() {
           <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between flex-shrink-0">
             <div className="flex items-center">
               <button
-                onClick={() => setShowConversationList(true)}
+                onClick={() => {
+                  // Replace current history entry to conversation list
+                  setShowConversationList(true);
+                  setCurrentConversationId(null);
+                  window.history.replaceState(null, '', window.location.pathname);
+                }}
                 className="mr-4 text-white/90 hover:text-white font-medium leading-none"
               >
                 ← Back

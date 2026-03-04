@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { speakText, stopSpeaking } from '../../utils/speechSynthesis';
+import { speakText, stopSpeaking, getEnglishVoices } from '../../utils/speechSynthesis';
+import { loadUserSettings } from '../../utils/userSettings';
+import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../../utils/aiSpeakers';
+import { waitForVoices } from '../../utils/speechSynthesis';
 
 // Prevent re-autoplay across remounts during a single app session
 const autoPlayedTtsKeys = new Set<string>();
@@ -22,9 +25,25 @@ export default function AudioPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1.0);
   const [showText, setShowText] = useState(true); // Default to showing text
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const ttsAutoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevAutoPlayRef = useRef<boolean>(false);
   const prevTextRef = useRef<string>('');
+
+  // Load selected speaker's voice
+  useEffect(() => {
+    waitForVoices().then((voices) => {
+      const settings = loadUserSettings();
+      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices);
+      const speaker = speakers.find((s) => s.id === settings.aiSpeakerId) || speakers[0];
+      
+      if (speaker?.voiceName) {
+        const englishVoices = getEnglishVoices();
+        const voice = englishVoices.find((v) => v.name === speaker.voiceName);
+        setSelectedVoice(voice || null);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     // Cleanup any active TTS on unmount
@@ -58,7 +77,12 @@ export default function AudioPlayer({
       try {
         setIsPlaying(true);
         autoPlayedTtsKeys.add(key);
-        await speakText({ text: t, lang: 'en-US', rate: speed });
+        await speakText({ 
+          text: t, 
+          lang: 'en-US', 
+          rate: speed,
+          voice: selectedVoice || undefined,
+        });
       } catch (e) {
         // allow retry on next update
         autoPlayedTtsKeys.delete(key);
@@ -74,7 +98,7 @@ export default function AudioPlayer({
         ttsAutoPlayTimerRef.current = null;
       }
     };
-  }, [autoPlay, autoPlayKey, text, speed]);
+  }, [autoPlay, autoPlayKey, text, speed, selectedVoice]);
 
   const togglePlay = async () => {
     // Use current speed state
@@ -121,6 +145,7 @@ export default function AudioPlayer({
           text: text,
           lang: 'en-US',
           rate: currentSpeed, // Use the current speed state
+          voice: selectedVoice || undefined,
         });
         console.log('✅ TTS playback completed');
         setIsPlaying(false);
