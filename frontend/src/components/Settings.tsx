@@ -95,10 +95,12 @@ export default function Settings() {
 
   const filteredLanguages = useMemo(() => {
     const q = languageQuery.trim().toLowerCase();
-    if (!q) return GOOGLE_TRANSLATE_LANGUAGES;
-    return GOOGLE_TRANSLATE_LANGUAGES.filter(
-      (l) => l.code.toLowerCase().includes(q) || l.name.toLowerCase().includes(q)
-    );
+    const list = q
+      ? GOOGLE_TRANSLATE_LANGUAGES.filter(
+          (l) => l.code.toLowerCase().includes(q) || l.name.toLowerCase().includes(q)
+        )
+      : [...GOOGLE_TRANSLATE_LANGUAGES];
+    return list.sort((a, b) => a.name.localeCompare(b.name));
   }, [languageQuery]);
 
   const selectedLang = useMemo(() => {

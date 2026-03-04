@@ -24,11 +24,14 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   const [error, setError] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Web Speech API types not in TS lib
   const recognitionRef = useRef<any>(null);
-  const shouldRestartRef = useRef<boolean>(true); // Track if we should auto-restart
-  const noSpeechErrorCountRef = useRef<number>(0); // Track consecutive no-speech errors
+  const shouldRestartRef = useRef<boolean>(true);
+  const noSpeechErrorCountRef = useRef<number>(0);
   const isListeningRef = useRef<boolean>(false);
   const startAttemptIdRef = useRef<number>(0);
   const startRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Accumulate final segments across onresult (and across restarts on mobile) so nothing is lost
+  const accumulatedTranscriptRef = useRef<string>('');
+  const lastAppendedIndexRef = useRef<number>(-1);
 
   useEffect(() => {
     // Check browser support
@@ -59,38 +62,37 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     };
 
     recognition.onresult = (event: { results: Array<{ 0: { transcript: string }; isFinal: boolean; length: number }>; resultIndex: number }) => {
-      // Reset no-speech error count when we get results
       noSpeechErrorCountRef.current = 0;
-      
-      let interimAll = '';
-      let finalAll = '';
 
-      // Build transcript from ALL results to avoid losing earlier segments.
-      for (let i = 0; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalAll += t + ' ';
+      let interimAll = '';
+      const results = event.results;
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].isFinal) {
+          if (i > lastAppendedIndexRef.current) {
+            accumulatedTranscriptRef.current += results[i][0].transcript + ' ';
+            lastAppendedIndexRef.current = i;
+          }
         } else {
-          interimAll += t;
+          interimAll += results[i][0].transcript;
         }
       }
 
-      const fullTranscript = `${finalAll}${interimAll}`.trim();
-      
+      const accumulated = accumulatedTranscriptRef.current.trim();
+      const fullTranscript = `${accumulated}${accumulated && interimAll ? ' ' : ''}${interimAll}`.trim();
+
       console.log('✅ Speech recognition result:', {
-        interim: interimAll,
-        final: finalAll,
-        full: fullTranscript,
         resultIndex: event.resultIndex,
-        resultsLength: event.results.length
+        resultsLength: results.length,
+        accumulatedLength: accumulated.length,
+        fullLength: fullTranscript.length,
       });
-      
+
       setTranscript(fullTranscript);
-      setFinalTranscript(finalAll.trim());
+      setFinalTranscript(accumulated);
       setInterimTranscript(interimAll.trim());
 
       if (onResult) {
-        onResult(fullTranscript, finalAll.length > 0);
+        onResult(fullTranscript, accumulated.length > 0);
       }
     };
 
@@ -174,9 +176,8 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       setIsListening(false);
       isListeningRef.current = false;
       
-      // If continuous mode and we should restart, restart automatically
       if (continuous && shouldRestartRef.current && recognitionRef.current) {
-        // Small delay before restarting to avoid immediate restart
+        lastAppendedIndexRef.current = -1;
         setTimeout(() => {
           if (recognitionRef.current && shouldRestartRef.current) {
             try {
@@ -218,15 +219,15 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       return;
     }
 
-    // If already listening, abort first to ensure clean state
     if (isListening) {
       console.log('Speech recognition is already listening, aborting first...');
       recognitionRef.current.abort();
-      // Wait a moment for cleanup, then start
       setTimeout(() => {
         try {
           shouldRestartRef.current = true;
           noSpeechErrorCountRef.current = 0;
+          accumulatedTranscriptRef.current = '';
+          lastAppendedIndexRef.current = -1;
           setTranscript('');
           setError(null);
           recognitionRef.current?.start();
@@ -239,8 +240,10 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     }
 
     try {
-      shouldRestartRef.current = true; // Allow auto-restart
-      noSpeechErrorCountRef.current = 0; // Reset error count
+      shouldRestartRef.current = true;
+      noSpeechErrorCountRef.current = 0;
+      accumulatedTranscriptRef.current = '';
+      lastAppendedIndexRef.current = -1;
       setTranscript('');
       setError(null);
       startAttemptIdRef.current += 1;
@@ -330,6 +333,8 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   };
 
   const reset = () => {
+    accumulatedTranscriptRef.current = '';
+    lastAppendedIndexRef.current = -1;
     setTranscript('');
     setFinalTranscript('');
     setInterimTranscript('');
