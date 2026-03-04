@@ -29,9 +29,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   const isListeningRef = useRef<boolean>(false);
   const startAttemptIdRef = useRef<number>(0);
   const startRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Accumulate final segments across onresult (and across restarts on mobile) so nothing is lost
   const accumulatedTranscriptRef = useRef<string>('');
-  const lastAppendedIndexRef = useRef<number>(-1);
 
   useEffect(() => {
     // Check browser support
@@ -66,13 +64,12 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
       let interimAll = '';
       const results = event.results;
+      const ri = event.resultIndex;
+      if (ri < results.length && results[ri].isFinal) {
+        accumulatedTranscriptRef.current += results[ri][0].transcript + ' ';
+      }
       for (let i = 0; i < results.length; i++) {
-        if (results[i].isFinal) {
-          if (i > lastAppendedIndexRef.current) {
-            accumulatedTranscriptRef.current += results[i][0].transcript + ' ';
-            lastAppendedIndexRef.current = i;
-          }
-        } else {
+        if (!results[i].isFinal) {
           interimAll += results[i][0].transcript;
         }
       }
@@ -177,7 +174,6 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       isListeningRef.current = false;
       
       if (continuous && shouldRestartRef.current && recognitionRef.current) {
-        lastAppendedIndexRef.current = -1;
         setTimeout(() => {
           if (recognitionRef.current && shouldRestartRef.current) {
             try {
@@ -227,7 +223,6 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
           shouldRestartRef.current = true;
           noSpeechErrorCountRef.current = 0;
           accumulatedTranscriptRef.current = '';
-          lastAppendedIndexRef.current = -1;
           setTranscript('');
           setError(null);
           recognitionRef.current?.start();
@@ -243,7 +238,6 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       shouldRestartRef.current = true;
       noSpeechErrorCountRef.current = 0;
       accumulatedTranscriptRef.current = '';
-      lastAppendedIndexRef.current = -1;
       setTranscript('');
       setError(null);
       startAttemptIdRef.current += 1;
@@ -334,7 +328,6 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
   const reset = () => {
     accumulatedTranscriptRef.current = '';
-    lastAppendedIndexRef.current = -1;
     setTranscript('');
     setFinalTranscript('');
     setInterimTranscript('');

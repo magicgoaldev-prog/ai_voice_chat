@@ -3,7 +3,7 @@ import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import { getSuggestions, sendTextMessage, sendTextMessageStream, uploadMessageAudio } from '../../services/api';
 import { Message } from '../../types';
-import { requestMicrophoneAccess, getMicrophonePermissionInstructions, requiresHTTPS } from '../../utils/permissionHelper';
+import { requestMicrophoneAccess, getMicrophonePermissionInstructions, requiresHTTPS, isMobile } from '../../utils/permissionHelper';
 
 interface MessageComposerProps {
   conversationId: string;
@@ -138,19 +138,15 @@ export default function MessageComposer({
     return looksLikeQuestion ? `${t}?` : `${t}.`;
   };
 
-  // Keep a ref of transcript for stop-time sending. On mobile, onend can fire often so
-  // isListening may be false even while results keep arriving; always push transcript to
-  // input when we have content so the user sees recognized text.
+  // Sync transcript from speech recognition into the input field and latestTranscriptRef (for send).
   useEffect(() => {
     if (suppressSpeechToInputRef.current) return;
     if (userOverrodeInputRef.current) return;
     const punctuatedFinal = autoPunctuate(finalTranscript || '');
-    const combined = `${punctuatedFinal}${punctuatedFinal && interimTranscript ? ' ' : ''}${interimTranscript || ''}`.trim();
-    const display = combined || transcript || '';
+    const display = `${punctuatedFinal}${punctuatedFinal && interimTranscript ? ' ' : ''}${interimTranscript || ''}`.trim() || transcript || '';
     latestTranscriptRef.current = display;
-    if (display) {
-      setInputText(display);
-    } else if (isListening) {
+    setInputText(display);
+    if (!display && isListening) {
       setInputText('');
     }
   }, [transcript, finalTranscript, interimTranscript, isListening]);
@@ -312,7 +308,17 @@ export default function MessageComposer({
     if (isProcessing) return;
 
     if (!isListening) {
-      // Start recording (toggle)
+      if (isMobile()) {
+        alert(
+          '📱 Use the keyboard voice input\n\n' +
+            'On mobile, voice recognition works better with the device keyboard.\n\n' +
+            '1. Tap the input box below.\n' +
+            '2. When the keyboard appears, tap the microphone icon on the keyboard.\n' +
+            '3. Speak; the text will appear in the input box.'
+        );
+        return;
+      }
+
       if (requiresHTTPS()) {
         alert(
           '⚠️ HTTPS Required\n\nMobile browsers require HTTPS for microphone access (except localhost).\n\nPlease access via HTTPS.'
