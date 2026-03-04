@@ -72,7 +72,7 @@ export default function ConversationView({
       </div>
 
       {/* Bottom Fixed Area */}
-      <div className="bg-white/80 backdrop-blur-sm border-t border-gray-200/60 p-6 flex justify-center flex-shrink-0 shadow-lg">
+      <div className="bg-white/80 backdrop-blur-sm border-t border-gray-200/60 px-3 py-4 sm:p-6 flex justify-center flex-shrink-0 shadow-lg">
         <MessageComposer
           conversationId={conversationId}
           messages={messages}

@@ -280,14 +280,14 @@ export default function AudioPlayer({
             1x
           </button>
           <button
-            onClick={() => handleSpeedChange(2.0)}
+            onClick={() => handleSpeedChange(1.5)}
             className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-              Math.abs(speed - 2.0) < 0.01 
-                ? 'bg-blue-500 text-white shadow-sm' 
+              Math.abs(speed - 1.5) < 0.01
+                ? 'bg-blue-500 text-white shadow-sm'
                 : 'bg-transparent text-gray-600 hover:bg-gray-200'
             }`}
           >
-            2x
+            1.5x
           </button>
         </div>
         <button
