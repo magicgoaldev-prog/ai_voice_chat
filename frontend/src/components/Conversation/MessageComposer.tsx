@@ -138,21 +138,20 @@ export default function MessageComposer({
     return looksLikeQuestion ? `${t}?` : `${t}.`;
   };
 
-  // Keep a ref of transcript for stop-time sending
+  // Keep a ref of transcript for stop-time sending. On mobile, onend can fire often so
+  // isListening may be false even while results keep arriving; always push transcript to
+  // input when we have content so the user sees recognized text.
   useEffect(() => {
     if (suppressSpeechToInputRef.current) return;
-    if (userOverrodeInputRef.current) {
-      // User is editing; don't overwrite their input with late STT updates.
-      return;
-    }
-    // Build display text as: punctuated final + raw interim (token-like)
+    if (userOverrodeInputRef.current) return;
     const punctuatedFinal = autoPunctuate(finalTranscript || '');
     const combined = `${punctuatedFinal}${punctuatedFinal && interimTranscript ? ' ' : ''}${interimTranscript || ''}`.trim();
-
-    latestTranscriptRef.current = combined || transcript || '';
-    if (isListening) {
-      // Real-time updates into input field (token-like)
-      setInputText(combined || transcript || '');
+    const display = combined || transcript || '';
+    latestTranscriptRef.current = display;
+    if (display) {
+      setInputText(display);
+    } else if (isListening) {
+      setInputText('');
     }
   }, [transcript, finalTranscript, interimTranscript, isListening]);
 

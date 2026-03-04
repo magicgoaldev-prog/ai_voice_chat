@@ -350,9 +350,9 @@ export default function Settings() {
           </div>
 
           <div className="pt-4 border-t border-gray-200">
-            <button className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">
+            {/* <button className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">
               Logout
-            </button>
+            </button> */}
           </div>
         </div>
       </div>

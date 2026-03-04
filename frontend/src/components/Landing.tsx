@@ -37,7 +37,7 @@ export default function Landing() {
             }}
             className="underline hover:text-gray-700"
           >
-            Login with Google
+            {/* Login with Google */}
           </button>
         </p>
       </div>
