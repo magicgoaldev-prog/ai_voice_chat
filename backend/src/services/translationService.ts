@@ -34,7 +34,9 @@ export async function translateText(
       throw new Error(`Translation API error: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      data: { translations: Array<{ translatedText: string; detectedSourceLanguage?: string }> };
+    };
     const translation = data.data.translations[0];
     
     return {
