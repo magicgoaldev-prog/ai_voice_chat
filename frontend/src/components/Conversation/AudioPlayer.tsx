@@ -75,6 +75,11 @@ export default function AudioPlayer({
     // Debounce a bit so streaming doesn't speak partial fragments
     ttsAutoPlayTimerRef.current = setTimeout(async () => {
       try {
+        const isSpeaking = window.speechSynthesis.speaking ||
+          (window.speechSynthesis as { pending?: boolean }).pending === true;
+        if (isSpeaking) {
+          return;
+        }
         setIsPlaying(true);
         autoPlayedTtsKeys.add(key);
         await speakText({ 
@@ -170,8 +175,11 @@ export default function AudioPlayer({
           errorMessage += 'Please try again. If the problem persists, try refreshing the page.';
         }
         
-        // Only show alert for critical errors, not for minor issues
-        if (!error?.message?.includes('timeout')) {
+        // Only show alert for critical errors; skip for timeout and interrupted
+        const isInterrupted = error?.message?.includes('interrupted');
+        if (isInterrupted) {
+          console.warn('TTS was interrupted by another playback (no alert)');
+        } else if (!error?.message?.includes('timeout')) {
           alert(errorMessage);
         } else {
           console.warn('TTS timeout, but continuing...');

@@ -80,6 +80,11 @@ export function speakText(options: SpeechSynthesisOptions): Promise<void> {
           if (!resolved) {
             resolved = true;
             clearTimeout(timeoutId);
+            if (event.error === 'interrupted') {
+              console.log('TTS interrupted by another request (ignored)');
+              resolve();
+              return;
+            }
             const errorMessage = `Speech synthesis error: ${event.error} (charIndex: ${event.charIndex})`;
             console.error('TTS error:', errorMessage, event);
             reject(new Error(errorMessage));

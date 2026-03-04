@@ -15,6 +15,19 @@ export default function ConversationList({
   onCreateConversation,
   onDeleteConversation,
 }: ConversationListProps) {
+  /** Format conversation start time: date, hour, minute */
+  const formatStartedAt = (dateString?: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const formatTime = (dateString?: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -81,7 +94,7 @@ export default function ConversationList({
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-semibold text-gray-900 truncate mb-1">
-                      {conversation.title || 'New Conversation'}
+                      {formatStartedAt(conversation.createdAt) || 'New Conversation'}
                     </h3>
                     {conversation.lastMessage && (
                       <p className="text-xs text-gray-600 truncate leading-relaxed">
@@ -89,11 +102,11 @@ export default function ConversationList({
                       </p>
                     )}
                   </div>
-                  {conversation.lastMessageAt && (
+                  {/* {conversation.lastMessageAt && (
                     <span className="text-xs text-gray-400 ml-2 flex-shrink-0 font-medium">
                       {formatTime(conversation.lastMessageAt)}
                     </span>
-                  )}
+                  )} */}
                 </div>
                 {onDeleteConversation && (
                   <button
