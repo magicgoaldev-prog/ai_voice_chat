@@ -1,208 +1,171 @@
-// Web Speech API TTS utility
+// Web Speech API TTS — simplified singleton
+//
+// Design:
+// - Only one global speak job at a time
+// - New speakText() resolves the previous call (never rejects)
+// - No start notification from here — callers set UI state if needed
+// - Chrome workarounds:
+//   A) After cancel(), ignore onend within 250ms of speak() (echo from prior cancel)
+//   B) Background tab pause: poll resume() every 100ms
 
-export interface SpeechSynthesisOptions {
+export interface SpeakOptions {
   text: string;
   lang?: string;
   rate?: number;
   pitch?: number;
   volume?: number;
-  voice?: SpeechSynthesisVoice;
+  voiceName?: string;
 }
 
-export function speakText(options: SpeechSynthesisOptions): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!('speechSynthesis' in window)) {
-      reject(new Error('Speech synthesis is not supported in this browser.'));
-      return;
-    }
+// Global singleton state
+let _token   = 0;
+let _resolve: (() => void) | null = null;
+let _keepAliveId: ReturnType<typeof setInterval> | null = null;
 
-    // Cancel any ongoing speech and wait a bit for cleanup
-    window.speechSynthesis.cancel();
-    
-    // Small delay to ensure previous speech is fully cancelled
-    setTimeout(() => {
-      try {
-        // Validate and sanitize rate value
-        let rate = options.rate;
-        if (rate === undefined || rate === null || isNaN(rate) || !isFinite(rate)) {
-          rate = 1.0;
-        }
-        // Clamp rate to valid range (0.1 to 10)
-        rate = Math.max(0.1, Math.min(10, rate));
-        
-        // Validate and sanitize pitch value
-        let pitch = options.pitch;
-        if (pitch === undefined || pitch === null || isNaN(pitch) || !isFinite(pitch)) {
-          pitch = 1.0;
-        }
-        // Clamp pitch to valid range (0 to 2)
-        pitch = Math.max(0, Math.min(2, pitch));
-        
-        // Validate and sanitize volume value
-        let volume = options.volume;
-        if (volume === undefined || volume === null || isNaN(volume) || !isFinite(volume)) {
-          volume = 1.0;
-        }
-        // Clamp volume to valid range (0 to 1)
-        volume = Math.max(0, Math.min(1, volume));
-        
-        const utterance = new SpeechSynthesisUtterance(options.text);
-        utterance.lang = options.lang || 'en-US';
-        utterance.rate = rate;
-        utterance.pitch = pitch;
-        utterance.volume = volume;
-        
-        console.log('TTS utterance created with:', { rate, pitch, volume, lang: utterance.lang });
+function _stopKA() {
+  if (_keepAliveId !== null) { clearInterval(_keepAliveId); _keepAliveId = null; }
+}
 
-        if (options.voice) {
-          utterance.voice = options.voice;
-        }
-
-        let resolved = false;
-        const timeoutId = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            console.warn('TTS timeout - assuming completion');
-            resolve();
-          }
-        }, Math.max(30000, options.text.length * 100)); // Timeout based on text length
-
-        utterance.onend = () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            console.log('TTS completed successfully');
-            resolve();
-          }
-        };
-
-        utterance.onerror = (event) => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            if (event.error === 'interrupted') {
-              console.log('TTS interrupted by another request (ignored)');
-              resolve();
-              return;
-            }
-            const errorMessage = `Speech synthesis error: ${event.error} (charIndex: ${event.charIndex})`;
-            console.error('TTS error:', errorMessage, event);
-            reject(new Error(errorMessage));
-          }
-        };
-
-        utterance.onstart = () => {
-          console.log('TTS started:', options.text.substring(0, 50) + '...');
-        };
-
-        utterance.onpause = () => {
-          console.log('TTS paused');
-        };
-
-        utterance.onresume = () => {
-          console.log('TTS resumed');
-        };
-
-        // Check if speechSynthesis is speaking before starting
-        // Note: pending property may not be available in all browsers
-        const isSpeaking = window.speechSynthesis.speaking || 
-          (window.speechSynthesis as any).pending || false;
-        
-        if (isSpeaking) {
-          console.warn('Speech synthesis is already active, ensuring clean state...');
-          window.speechSynthesis.cancel();
-          // Wait a bit longer if something was speaking
-          setTimeout(() => {
-            try {
-              if (!resolved) {
-                window.speechSynthesis.speak(utterance);
-              }
-            } catch (speakError: any) {
-              if (!resolved) {
-                resolved = true;
-                clearTimeout(timeoutId);
-                const errorMsg = speakError?.message || 'Unknown error';
-                console.error('Failed to speak after cancel:', errorMsg);
-                reject(new Error(`Failed to speak: ${errorMsg}`));
-              }
-            }
-          }, 200);
-        } else {
-          try {
-            window.speechSynthesis.speak(utterance);
-          } catch (speakError: any) {
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timeoutId);
-              const errorMsg = speakError?.message || 'Unknown error';
-              console.error('Failed to speak:', errorMsg, speakError);
-              reject(new Error(`Failed to speak: ${errorMsg}`));
-            }
-          }
-        }
-      } catch (error: any) {
-        console.error('Error creating utterance:', error);
-        reject(new Error(`Failed to create speech utterance: ${error.message || 'Unknown error'}`));
+function _startKA() {
+  _stopKA();
+  _keepAliveId = setInterval(() => {
+    try {
+      if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
       }
-    }, 50); // Small delay after cancel
-  });
+    } catch { /* ignore */ }
+  }, 100);
 }
 
-export function stopSpeaking() {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
+/**
+ * Stop current speech and resolve its Promise.
+ * Called automatically at the start of speakText().
+ */
+function _cancel() {
+  _token++;
+  _stopKA();
+  if (_resolve) {
+    const r = _resolve;
+    _resolve = null;
+    r(); // Resolve the previous speakText() promise
   }
+  try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
 }
 
-export function getAvailableVoices(): SpeechSynthesisVoice[] {
-  if (!('speechSynthesis' in window)) {
-    return [];
-  }
-  return window.speechSynthesis.getVoices();
-}
+// ── Public API ────────────────────────────────────────────────────────────────
 
-export function getEnglishVoices(): SpeechSynthesisVoice[] {
-  return getVoicesForPracticeLanguage('en');
-}
+/**
+ * Speak text. The returned Promise resolves when playback finishes or when
+ * another speakText() / stopSpeaking() runs. Never rejects.
+ */
+export function speakText(opts: SpeakOptions): Promise<void> {
+  if (!('speechSynthesis' in window)) return Promise.resolve();
 
-export function getVoicesForPracticeLanguage(lang: 'en' | 'he'): SpeechSynthesisVoice[] {
-  const voices = getAvailableVoices();
-  if (lang === 'he') {
-    return voices.filter(
-      (v) =>
-        v.lang.startsWith('he') ||
-        v.lang.toLowerCase().startsWith('he') ||
-        v.name?.toLowerCase().includes('hebrew')
-    );
-  }
-  return voices.filter(
-    (v) => v.lang.startsWith('en') || v.lang.includes('English')
-  );
-}
+  _cancel();
+  const myToken = _token;
 
-// Wait for voices to be loaded (Chrome fires voiceschanged asynchronously)
-export function waitForVoices(): Promise<SpeechSynthesisVoice[]> {
-  return new Promise((resolve) => {
-    const done = (list: SpeechSynthesisVoice[]) => {
-      resolve(list);
-    };
-    const voices = getAvailableVoices();
-    if (voices.length > 0) {
-      done(voices);
-      return;
+  return new Promise<void>((resolve) => {
+    _resolve = resolve;
+
+    const rate   = _clamp(opts.rate   ?? 1.0, 0.1, 10);
+    const pitch  = _clamp(opts.pitch  ?? 1.0, 0,   2);
+    const volume = _clamp(opts.volume ?? 1.0, 0,   1);
+
+    const utt    = new SpeechSynthesisUtterance(opts.text);
+    utt.lang     = opts.lang ?? 'en-US';
+    utt.rate     = rate;
+    utt.pitch    = pitch;
+    utt.volume   = volume;
+
+    // Resolve voice each time (avoids stale voice object bugs)
+    if (opts.voiceName) {
+      const found = window.speechSynthesis.getVoices().find(v => v.name === opts.voiceName);
+      if (found) utt.voice = found;
     }
-    window.speechSynthesis.onvoiceschanged = () => {
-      done(getAvailableVoices());
+
+    const safetyMs = Math.min(90_000, Math.max(20_000, opts.text.length * 100));
+    let   done     = false;
+    let   callTime = 0;
+    let   safetyId: ReturnType<typeof setTimeout>;
+
+    const finish = (src: string) => {
+      if (done) return;
+      // Chrome: onend within 250ms of speak() can be echo from a prior cancel
+      if (src === 'onend' && callTime > 0 && (Date.now() - callTime) < 250) {
+        return;
+      }
+      done = true;
+      clearTimeout(safetyId);
+      _stopKA();
+      if (myToken === _token) {
+        _resolve = null;
+        resolve();
+      }
     };
+
+    utt.onend   = () => finish('onend');
+    utt.onerror = (e) => {
+      // 'interrupted' is expected when we cancel — treat as normal completion
+      finish('onerror:' + e.error);
+    };
+
+    // Wait 180ms after cancel() so the browser fully finishes cancel
+    setTimeout(() => {
+      if (myToken !== _token) { finish('superseded'); return; }
+      try {
+        callTime = Date.now();
+        window.speechSynthesis.speak(utt);
+        _startKA();
+        safetyId = setTimeout(() => finish('timeout'), safetyMs);
+      } catch {
+        finish('speak-threw');
+      }
+    }, 180);
   });
 }
 
-// Wait for voices and optionally retry after a delay (helps when Hebrew was just added and list updates late)
-export function waitForVoicesWithRetry(retryMs = 2000): Promise<SpeechSynthesisVoice[]> {
-  return waitForVoices().then((first) => {
-    if (first.length > 0) return first;
-    return new Promise<SpeechSynthesisVoice[]>((resolve) => {
-      setTimeout(() => resolve(getAvailableVoices()), retryMs);
-    });
+/** Stop current playback. */
+export function stopSpeaking() {
+  _cancel();
+}
+
+// Voice list helpers
+
+export function getVoicesForLang(lang: 'en' | 'he'): SpeechSynthesisVoice[] {
+  if (!('speechSynthesis' in window)) return [];
+  const all = window.speechSynthesis.getVoices();
+  if (lang === 'he') {
+    return all.filter(v => v.lang.startsWith('he') || v.name.toLowerCase().includes('hebrew'));
+  }
+  return all.filter(v => v.lang.startsWith('en') || v.lang.includes('English'));
+}
+
+// Back-compat aliases
+export function getAvailableVoices()               { return ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : []; }
+export function getEnglishVoices()                 { return getVoicesForLang('en'); }
+export function getVoicesForPracticeLanguage(l: 'en'|'he') { return getVoicesForLang(l); }
+
+export function waitForVoices(): Promise<SpeechSynthesisVoice[]> {
+  if (!('speechSynthesis' in window)) return Promise.resolve([]);
+  const v = window.speechSynthesis.getVoices();
+  if (v.length > 0) return Promise.resolve(v);
+  return new Promise(res => {
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+      res(window.speechSynthesis.getVoices());
+    }, { once: true });
   });
+}
+
+export function waitForVoicesWithRetry(retryMs = 2000): Promise<SpeechSynthesisVoice[]> {
+  return waitForVoices().then(v => {
+    if (v.length > 0) return v;
+    return new Promise<SpeechSynthesisVoice[]>(res =>
+      setTimeout(() => res(window.speechSynthesis?.getVoices() ?? []), retryMs)
+    );
+  });
+}
+
+function _clamp(v: number, min: number, max: number) {
+  if (!isFinite(v) || isNaN(v)) return min;
+  return Math.max(min, Math.min(max, v));
 }

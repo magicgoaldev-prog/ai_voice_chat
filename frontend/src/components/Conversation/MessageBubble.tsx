@@ -3,10 +3,7 @@ import AudioPlayer from './AudioPlayer';
 import ErrorExplanation from './ErrorExplanation';
 import { Message } from '../../types';
 import { translateText } from '../../services/api';
-import { loadUserSettings, getEffectiveAiSpeakerId } from '../../utils/userSettings';
-import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../../utils/aiSpeakers';
-import { AISpeaker } from '../../utils/userSettings';
-import { waitForVoices } from '../../utils/speechSynthesis';
+import { loadUserSettings } from '../../utils/userSettings';
 
 // Simple audio player for user recordings
 function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
@@ -64,40 +61,25 @@ function UserAudioPlayer({ audioUrl }: { audioUrl: string }) {
 
 interface MessageBubbleProps {
   message: Message;
-  isNewMessage?: boolean; // Indicates if this is a newly added message
   onRequestFeedback: (messageId: string) => void | Promise<void>;
   isFeedbackLoading: boolean;
   autoPlayAudio: boolean;
+  onAutoplayConsumed: () => void;
 }
 
 export default function MessageBubble({
   message,
-  isNewMessage = false,
   onRequestFeedback,
   isFeedbackLoading,
   autoPlayAudio,
+  onAutoplayConsumed,
 }: MessageBubbleProps) {
   const [showExplanation, setShowExplanation] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [selectedSpeaker, setSelectedSpeaker] = useState<AISpeaker | null>(null);
 
-  // Load selected speaker info (by practice language)
-  const practiceLanguage = loadUserSettings().practiceLanguage ?? 'en';
-  useEffect(() => {
-    waitForVoices().then((voices) => {
-      const settings = loadUserSettings();
-      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices, settings.practiceLanguage ?? 'en');
-      const effectiveId = getEffectiveAiSpeakerId(
-        settings.practiceLanguage ?? 'en',
-        settings.aiSpeakerId
-      );
-      const speaker = speakers.find((s) => s.id === effectiveId) || speakers[0];
-      setSelectedSpeaker(speaker || null);
-    });
-  }, [practiceLanguage]);
 
   // Reset UI toggles when message changes
   useEffect(() => {
@@ -107,17 +89,6 @@ export default function MessageBubble({
     setTranslatedText(null);
   }, [message.id]);
   
-  // Debug logging
-  useEffect(() => {
-    if (message.type === 'ai' && isNewMessage) {
-      console.log('🎵 New AI message detected for auto-play:', {
-        messageId: message.id,
-        text: message.aiResponseText?.substring(0, 50),
-        isNewMessage
-      });
-    }
-  }, [message.id, message.type, isNewMessage, message.aiResponseText]);
-
   if (message.type === 'user') {
     return (
       <div className="flex flex-col items-end space-y-2">
@@ -198,23 +169,14 @@ export default function MessageBubble({
 
   return (
       <div className="flex flex-col items-start space-y-2">
-        {/* AI speaker name and avatar - above bubble, left side */}
-        {selectedSpeaker && (
-          <div className="flex items-center gap-2 mb-1">
-            <img
-              src={selectedSpeaker.photo}
-              alt={selectedSpeaker.name}
-              className="w-8 h-8 rounded-full object-cover border-2 border-gray-200"
-            />
-            <span className="text-xs text-gray-600 font-medium">{selectedSpeaker.name}</span>
-          </div>
-        )}
+
         <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200/60 rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg shadow-sm">
           <AudioPlayer
             audioUrl={message.audioUrl}
             text={message.aiResponseText}
-            autoPlay={autoPlayAudio} // AudioPlayer itself ensures "once per message"
+            autoPlay={autoPlayAudio}
             autoPlayKey={message.id}
+            onAutoplayConsumed={onAutoplayConsumed}
             onShowTranslation={async () => {
               if (!showTranslation) {
                 setShowTranslation(true);

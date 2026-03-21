@@ -8,38 +8,22 @@ interface ChatAreaProps {
   onRequestFeedback: (messageId: string) => void | Promise<void>;
   feedbackLoadingIds: Set<string>;
   autoPlayAudio: boolean;
+  pendingAutoplayAiMessageId: string | null;
+  onAutoplayConsumed: () => void;
 }
 
-export default function ChatArea({ messages, isProcessing, onRequestFeedback, feedbackLoadingIds, autoPlayAudio }: ChatAreaProps) {
+export default function ChatArea({
+  messages,
+  isProcessing,
+  onRequestFeedback,
+  feedbackLoadingIds,
+  autoPlayAudio,
+  pendingAutoplayAiMessageId,
+  onAutoplayConsumed,
+}: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
-  const prevMessageIdsRef = useRef<Set<string>>(new Set());
-  const newAiMessageIdRef = useRef<string | null>(null);
-
-  // Detect newly added AI messages when messages array changes
-  useEffect(() => {
-    const currentIds = new Set(messages.map(m => m.id));
-    const prevIds = prevMessageIdsRef.current;
-    
-    // Find newly added messages
-    const newMessages = messages.filter(m => !prevIds.has(m.id));
-    const newAiMessage = newMessages.find(m => m.type === 'ai');
-    
-    if (newAiMessage) {
-      newAiMessageIdRef.current = newAiMessage.id;
-      console.log('📨 ChatArea: New AI message detected for auto-play', {
-        messageId: newAiMessage.id,
-        text: newAiMessage.aiResponseText?.substring(0, 50)
-      });
-    } else {
-      // Clear the ref after the message has been rendered
-      newAiMessageIdRef.current = null;
-    }
-    
-    // Update previous message IDs
-    prevMessageIdsRef.current = currentIds;
-  }, [messages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -92,21 +76,16 @@ export default function ChatArea({ messages, isProcessing, onRequestFeedback, fe
           <p className="text-sm md:text-base text-gray-500">Tap the microphone to start, tap again to send</p>
         </div>
       )}
-      {messages.map((message) => {
-        // Mark AI message as new if it matches the newly added AI message ID
-        const isNewMessage = message.type === 'ai' && message.id === newAiMessageIdRef.current;
-        
-        return (
-          <MessageBubble 
-            key={message.id} 
-            message={message} 
-            isNewMessage={isNewMessage}
+      {messages.map((message) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
             onRequestFeedback={onRequestFeedback}
             isFeedbackLoading={feedbackLoadingIds.has(message.id)}
-            autoPlayAudio={autoPlayAudio}
+            autoPlayAudio={autoPlayAudio && message.id === pendingAutoplayAiMessageId}
+            onAutoplayConsumed={onAutoplayConsumed}
           />
-        );
-      })}
+      ))}
       {isProcessing && (
         <div className="flex justify-center">
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center space-x-3 shadow-sm">

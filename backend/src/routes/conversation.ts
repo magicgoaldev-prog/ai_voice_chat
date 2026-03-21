@@ -546,30 +546,42 @@ router.post('/message', async (req, res) => {
       last_message_at: aiCreatedAt || new Date(Date.now() + 1).toISOString(),
     });
 
-    // Background: generate AI TTS and store to Supabase Storage (English and Hebrew)
-    setImmediate(async () => {
-      try {
-        const aiAudioDataUrl = await generateTTS(result.aiResponseText, 1.0);
-        const base64 = aiAudioDataUrl.split('base64,')[1];
-        if (!base64) return;
-        const buffer = Buffer.from(base64, 'base64');
-        const path = `${MOCK_USER_ID}/${conversationId}/${aiMessageId}/ai.mp3`;
+    // Generate TTS synchronously so the client gets audio in one round-trip.
+    // Background: also upload to Supabase Storage for persistence.
+    let aiAudioDataUrl: string | null = null;
+    try {
+      aiAudioDataUrl = await Promise.race([
+        generateTTS(result.aiResponseText, 1.0),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000)),
+      ]);
+    } catch (e) {
+      console.warn('AI TTS generation failed (non-stream route, non-fatal):', e);
+    }
 
-        const uploadRes = await supabase.storage
-          .from(SUPABASE_STORAGE_BUCKET)
-          .upload(path, buffer, { contentType: 'audio/mpeg', upsert: true });
-        if (uploadRes.error) throw uploadRes.error;
-
-        const publicUrlRes = supabase.storage.from(SUPABASE_STORAGE_BUCKET).getPublicUrl(path);
-        const url = publicUrlRes.data.publicUrl;
-        await updateMessage(conversationId, aiMessageId, { ai_audio_url: url });
-      } catch (e) {
-        console.warn('AI TTS background job failed:', e);
-      }
-    });
+    // Background upload to Supabase Storage
+    if (aiAudioDataUrl) {
+      setImmediate(async () => {
+        try {
+          const base64 = (aiAudioDataUrl as string).split('base64,')[1];
+          if (!base64) return;
+          const buffer = Buffer.from(base64, 'base64');
+          const path = `${MOCK_USER_ID}/${conversationId}/${aiMessageId}/ai.mp3`;
+          const uploadRes = await supabase.storage
+            .from(SUPABASE_STORAGE_BUCKET)
+            .upload(path, buffer, { contentType: 'audio/mpeg', upsert: true });
+          if (uploadRes.error) throw uploadRes.error;
+          const publicUrlRes = supabase.storage.from(SUPABASE_STORAGE_BUCKET).getPublicUrl(path);
+          const url = publicUrlRes.data.publicUrl;
+          await updateMessage(conversationId, aiMessageId, { ai_audio_url: url });
+        } catch (e) {
+          console.warn('AI TTS background upload failed (non-stream route):', e);
+        }
+      });
+    }
 
     res.json({
       aiResponseText: result.aiResponseText,
+      aiAudioDataUrl: aiAudioDataUrl ?? undefined,
       timings: {
         total_ms: Date.now() - t0,
         pre_ms: t1 - t0,

@@ -15,6 +15,7 @@ interface MessageComposerProps {
   autoPlayAudio: boolean;
   restartNonce: number;
   onPatchMessage: (messageId: string, patch: Partial<Message>) => void;
+  onSetPendingAutoplayAiMessageId: (id: string | null) => void;
 }
 
 function MicrophoneIcon({ isRecording }: { isRecording: boolean }) {
@@ -70,6 +71,7 @@ export default function MessageComposer({
   autoPlayAudio,
   restartNonce,
   onPatchMessage,
+  onSetPendingAutoplayAiMessageId,
 }: MessageComposerProps) {
   const [inputText, setInputText] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -247,10 +249,26 @@ export default function MessageComposer({
         userCreatedAt: userMessage.createdAt,
         aiCreatedAt: aiMessage.createdAt,
       });
-      onPatchMessage(aiMessage.id, { aiResponseText: response.aiResponseText });
+      const patch: Partial<Message> = { aiResponseText: response.aiResponseText };
+      if (response.aiAudioDataUrl) {
+        try {
+          const base64 = response.aiAudioDataUrl.split('base64,')[1];
+          if (base64) {
+            const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: 'audio/mpeg' });
+            patch.audioUrl = URL.createObjectURL(blob);
+          }
+        } catch (audioErr) {
+          console.warn('Failed to parse non-stream audio (non-fatal):', audioErr);
+        }
+      }
+      onPatchMessage(aiMessage.id, patch);
       return { userMessageId: userMessage.id, aiMessageId: aiMessage.id };
     } finally {
       onProcessingChange(false);
+      if (autoPlayAudio) {
+        onSetPendingAutoplayAiMessageId(aiMessage.id);
+      }
     }
   };
 
@@ -536,4 +554,3 @@ export default function MessageComposer({
     </div>
   );
 }
-

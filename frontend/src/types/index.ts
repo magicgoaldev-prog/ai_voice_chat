@@ -41,6 +41,7 @@ export interface ConversationResponse {
   aiResponseText: string;
   correctedText?: string;
   explanation?: string;
+  aiAudioDataUrl?: string;  // base64 MP3 from non-stream fallback
 }
 
 export interface FeedbackResponse {

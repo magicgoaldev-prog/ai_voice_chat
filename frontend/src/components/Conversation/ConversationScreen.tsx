@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import ConversationView from './ConversationView';
@@ -50,6 +50,21 @@ export default function ConversationScreen() {
   }, [autoPlayAudio]);
 
   const [restartNonce, setRestartNonce] = useState(0);
+  /** Only this AI message may auto-play TTS (set when stream completes; cleared when playback starts). */
+  const [pendingAutoplayAiMessageId, setPendingAutoplayAiMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPendingAutoplayAiMessageId(null);
+  }, [currentConversationId]);
+
+  const handleAutoplayConsumed = useCallback(() => {
+    setPendingAutoplayAiMessageId(null);
+  }, []);
+
+  const handleToggleAutoPlayAudio = useCallback((next: boolean) => {
+    setAutoPlayAudio(next);
+    if (!next) setPendingAutoplayAiMessageId(null);
+  }, []);
 
   // Detect mobile/tablet/desktop
   useEffect(() => {
@@ -132,6 +147,7 @@ export default function ConversationScreen() {
     const conversationId = currentConversationId;
     // Immediately clear UI
     setMessages([]);
+    setPendingAutoplayAiMessageId(null);
     setRestartNonce((n) => n + 1);
 
     (async () => {
@@ -370,10 +386,13 @@ export default function ConversationScreen() {
                 onRequestFeedback={handleRequestFeedback}
                 feedbackLoadingIds={feedbackLoadingIds}
                 autoPlayAudio={autoPlayAudio}
-                onToggleAutoPlayAudio={setAutoPlayAudio}
+                onToggleAutoPlayAudio={handleToggleAutoPlayAudio}
                 onRestartConversation={handleRestartConversation}
                 restartNonce={restartNonce}
                 onPatchMessage={handlePatchMessage}
+                pendingAutoplayAiMessageId={pendingAutoplayAiMessageId}
+                onSetPendingAutoplayAiMessageId={setPendingAutoplayAiMessageId}
+                onAutoplayConsumed={handleAutoplayConsumed}
               />
             </div>
           )}
@@ -424,10 +443,13 @@ export default function ConversationScreen() {
                 onRequestFeedback={handleRequestFeedback}
                 feedbackLoadingIds={feedbackLoadingIds}
                 autoPlayAudio={autoPlayAudio}
-                onToggleAutoPlayAudio={setAutoPlayAudio}
+                onToggleAutoPlayAudio={handleToggleAutoPlayAudio}
                 onRestartConversation={handleRestartConversation}
                 restartNonce={restartNonce}
                 onPatchMessage={handlePatchMessage}
+                pendingAutoplayAiMessageId={pendingAutoplayAiMessageId}
+                onSetPendingAutoplayAiMessageId={setPendingAutoplayAiMessageId}
+                onAutoplayConsumed={handleAutoplayConsumed}
               />
             </div>
           </>

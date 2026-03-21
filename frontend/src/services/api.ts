@@ -314,7 +314,7 @@ export async function sendVoiceMessage(
 
 export async function translateText(
   text: string,
-  targetLanguage: string = 'ko'
+  targetLanguage: string = 'ru'
 ): Promise<TranslationResponse> {
   try {
     const response = await axios.post<TranslationResponse>(

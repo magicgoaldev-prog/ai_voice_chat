@@ -1,18 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
-import { speakText, stopSpeaking, getVoicesForPracticeLanguage } from '../../utils/speechSynthesis';
-import { loadUserSettings, getEffectiveAiSpeakerId } from '../../utils/userSettings';
-import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../../utils/aiSpeakers';
-import { waitForVoices, waitForVoicesWithRetry } from '../../utils/speechSynthesis';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
-// Prevent re-autoplay across remounts during a single app session
-const autoPlayedTtsKeys = new Set<string>();
+// Dedupe autoplay per session (persists across remounts until full page reload)
+const autoPlayedKeys = new Set<string>();
 
 interface AudioPlayerProps {
-  audioUrl?: string;
-  text?: string;
+  audioUrl?: string; // Server-generated MP3 blob URL
+  text?: string; // Text shown under the player
   onShowTranslation: () => void;
-  autoPlay?: boolean; // Auto-play when component mounts or text changes
-  autoPlayKey?: string; // stable key (e.g., message.id) to ensure we auto-play once per message
+  autoPlay?: boolean;
+  autoPlayKey?: string;
+  onAutoplayConsumed?: () => void;
 }
 
 export default function AudioPlayer({
@@ -21,53 +18,73 @@ export default function AudioPlayer({
   onShowTranslation,
   autoPlay = false,
   autoPlayKey,
+  onAutoplayConsumed,
 }: AudioPlayerProps) {
-  const practiceLanguage = loadUserSettings().practiceLanguage ?? 'en';
-  const ttsLang = practiceLanguage === 'he' ? 'he-IL' : 'en-US';
-
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1.0);
-  const [showText, setShowText] = useState(true);
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const [ttsAvailable, setTtsAvailable] = useState(false); // true when we have at least one voice for practice language
-  const ttsAutoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevAutoPlayRef = useRef<boolean>(false);
-  const prevTextRef = useRef<string>('');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const hasAutoPlayedUrlRef = useRef(false);
+  const [speed,     setSpeed]     = useState(1.0);
+  const [showText,  setShowText]  = useState(true);
 
-  // Resolve voice for TTS: prefer selected AI speaker voice, then first voice for practice language (only used when ttsAvailable)
-  const getVoiceForTts = (): SpeechSynthesisVoice | undefined => {
-    if (selectedVoice) return selectedVoice;
-    const langVoices = getVoicesForPracticeLanguage(practiceLanguage);
-    return langVoices[0] || undefined;
-  };
+  const audioRef      = useRef<HTMLAudioElement | null>(null);
+  const autoPlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unmountedRef  = useRef(false);
 
-  // Load selected speaker's voice (by practice language); retry for Hebrew when voices load late after adding language
+  // Create / replace <audio> element
   useEffect(() => {
-    const wait = practiceLanguage === 'he' ? waitForVoicesWithRetry(2000) : waitForVoices();
-    wait.then((voices) => {
-      const settings = loadUserSettings();
-      const lang = settings.practiceLanguage ?? 'en';
-      const langVoices = getVoicesForPracticeLanguage(lang);
-      setTtsAvailable(langVoices.length > 0);
+    unmountedRef.current = false;
 
-      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices, lang);
-      const effectiveId = getEffectiveAiSpeakerId(lang, settings.aiSpeakerId);
-      const speaker = speakers.find((s) => s.id === effectiveId) || speakers[0];
-
-      if (speaker?.voiceName) {
-        const voice = langVoices.find((v) => v.name === speaker.voiceName);
-        setSelectedVoice(voice || langVoices[0] || null);
-      } else {
-        setSelectedVoice(langVoices[0] || null);
+    if (!audioUrl) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
       }
-    });
-  }, [practiceLanguage]);
+      return;
+    }
 
-  useEffect(() => {
+    // Tear down previous element
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+
+    const audio = new Audio(audioUrl);
+    audio.playbackRate = speed;
+    audioRef.current = audio;
+
+    const onPlay  = () => { if (!unmountedRef.current) setIsPlaying(true);  };
+    const onPause = () => { if (!unmountedRef.current) setIsPlaying(false); };
+    const onEnded = () => { if (!unmountedRef.current) setIsPlaying(false); };
+    const onError = () => { if (!unmountedRef.current) setIsPlaying(false); };
+
+    audio.addEventListener('play',  onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
+
     return () => {
-      stopSpeaking();
+      audio.removeEventListener('play',  onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
+      audio.pause();
+      audio.src = '';
+      if (audioRef.current === audio) audioRef.current = null;
+    };
+  // playbackRate is synced in a separate effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUrl]);
+
+  // Keep playbackRate in sync with state
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = speed;
+  }, [speed]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      if (autoPlayTimer.current) clearTimeout(autoPlayTimer.current);
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = '';
@@ -76,216 +93,73 @@ export default function AudioPlayer({
     };
   }, []);
 
-  // Create server audio element only when TTS is not available; when TTS is available we use selected AI speaker voice instead
+  // Autoplay: debounce 400ms after audioUrl is available
   useEffect(() => {
-    if (!audioUrl || ttsAvailable) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current = null;
-      }
-      return;
-    }
-    const audio = new Audio(audioUrl);
-    audio.playbackRate = speed;
-    audioRef.current = audio;
-    const onEnded = () => setIsPlaying(false);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-    audio.addEventListener('ended', onEnded);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
+    if (!autoPlay)    return;
+    if (!autoPlayKey) return;
+    if (autoPlayedKeys.has(autoPlayKey)) return;
+    if (!audioUrl) return; // Wait until server audio exists
+
+    if (autoPlayTimer.current) clearTimeout(autoPlayTimer.current);
+
+    autoPlayTimer.current = setTimeout(() => {
+      autoPlayTimer.current = null;
+      if (unmountedRef.current)            return;
+      if (!autoPlay)                       return;
+      if (autoPlayedKeys.has(autoPlayKey)) return;
+      if (!audioRef.current)               return;
+
+      autoPlayedKeys.add(autoPlayKey);
+      onAutoplayConsumed?.();
+
+      audioRef.current.currentTime = 0;
+      audioRef.current.playbackRate = speed;
+      audioRef.current.play().catch(() => {
+        // Autoplay blocked by policy, etc. — user can press play
+      });
+    }, 400);
+
     return () => {
-      audio.removeEventListener('ended', onEnded);
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
+      if (autoPlayTimer.current) { clearTimeout(autoPlayTimer.current); autoPlayTimer.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay, autoPlayKey, audioUrl]);
+
+  // Manual play / pause
+  const togglePlay = useCallback(() => {
+    if (autoPlayTimer.current) { clearTimeout(autoPlayTimer.current); autoPlayTimer.current = null; }
+    if (autoPlayKey) autoPlayedKeys.add(autoPlayKey);
+
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
       audio.pause();
-      audio.src = '';
-      if (audioRef.current === audio) audioRef.current = null;
-    };
-  }, [audioUrl, ttsAvailable]);
-
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.playbackRate = speed;
-  }, [speed, audioUrl]);
-
-  // Auto-play: TTS with selected AI speaker when available; otherwise server audio URL
-  useEffect(() => {
-    if (ttsAutoPlayTimerRef.current) {
-      clearTimeout(ttsAutoPlayTimerRef.current);
-      ttsAutoPlayTimerRef.current = null;
+    } else {
+      audio.currentTime = 0;
+      audio.playbackRate = speed;
+      audio.play().catch(() => setIsPlaying(false));
     }
+  }, [isPlaying, speed, autoPlayKey]);
 
-    const key = autoPlayKey || (text || '').trim() || 'unknown';
-    const autoPlayEnabledJustNow = autoPlay && !prevAutoPlayRef.current;
-    const textChanged = (text || '').trim() !== prevTextRef.current;
-    prevAutoPlayRef.current = !!autoPlay;
-    prevTextRef.current = (text || '').trim();
+  // Speed presets
+  const handleSpeedChange = useCallback((newSpeed: number) => {
+    setSpeed(newSpeed);
+    if (audioRef.current) audioRef.current.playbackRate = newSpeed;
+  }, []);
 
-    if (!autoPlay) return;
-    if (!key || key === 'unknown') return;
-    if (!textChanged && !autoPlayEnabledJustNow) return;
-    if (autoPlayedTtsKeys.has(key)) return;
-
-    const t = (text || '').trim();
-
-    if (ttsAvailable && t) {
-      ttsAutoPlayTimerRef.current = setTimeout(async () => {
-        try {
-          const isSpeaking = window.speechSynthesis.speaking ||
-            (window.speechSynthesis as { pending?: boolean }).pending === true;
-          if (isSpeaking) return;
-          setIsPlaying(true);
-          autoPlayedTtsKeys.add(key);
-          await speakText({
-            text: t,
-            lang: ttsLang,
-            rate: speed,
-            voice: getVoiceForTts(),
-          });
-        } catch (e) {
-          autoPlayedTtsKeys.delete(key);
-          console.warn('WebSpeech auto-play failed (non-fatal):', e);
-        } finally {
-          setIsPlaying(false);
-        }
-      }, 450);
-      return () => {
-        if (ttsAutoPlayTimerRef.current) {
-          clearTimeout(ttsAutoPlayTimerRef.current);
-          ttsAutoPlayTimerRef.current = null;
-        }
-      };
-    }
-
-    if (!ttsAvailable && audioUrl) {
-      hasAutoPlayedUrlRef.current = true;
-      autoPlayedTtsKeys.add(key);
-      const timer = setTimeout(() => {
-        const audio = audioRef.current;
-        if (audio && audio.src) {
-          setIsPlaying(true);
-          audio.playbackRate = speed;
-          audio.play().catch((e) => {
-            console.warn('Auto-play server audio failed (non-fatal):', e);
-            autoPlayedTtsKeys.delete(key);
-          });
-        }
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-
-    return () => {
-      if (ttsAutoPlayTimerRef.current) {
-        clearTimeout(ttsAutoPlayTimerRef.current);
-        ttsAutoPlayTimerRef.current = null;
-      }
-    };
-  }, [autoPlay, autoPlayKey, text, speed, selectedVoice, ttsLang, practiceLanguage, audioUrl, ttsAvailable]);
-
-  const togglePlay = async () => {
-    let currentSpeed = speed;
-    if (currentSpeed === undefined || currentSpeed === null || isNaN(currentSpeed) || !isFinite(currentSpeed)) {
-      currentSpeed = 1.0;
-      setSpeed(1.0);
-    }
-    currentSpeed = Math.max(0.1, Math.min(10, currentSpeed));
-
-    if (ttsAvailable && text) {
-      if (isPlaying) {
-        stopSpeaking();
-        setIsPlaying(false);
-      } else {
-        const alreadySpeaking =
-          window.speechSynthesis.speaking ||
-          (window.speechSynthesis as { pending?: boolean }).pending === true;
-        if (alreadySpeaking) return;
-        try {
-          setIsPlaying(true);
-          if (!('speechSynthesis' in window)) {
-            throw new Error('Speech synthesis is not supported in this browser.');
-          }
-          await speakText({
-            text,
-            lang: ttsLang,
-            rate: currentSpeed,
-            voice: getVoiceForTts(),
-          });
-        } catch (error: any) {
-          setIsPlaying(false);
-          const isInterrupted = error?.message?.includes('interrupted');
-          if (!isInterrupted && !error?.message?.includes('timeout')) {
-            alert(error?.message || 'Failed to play audio.');
-          }
-        } finally {
-          setIsPlaying(false);
-        }
-      }
-      return;
-    }
-
-    if (!ttsAvailable && audioUrl && audioRef.current) {
-      const audio = audioRef.current;
-      if (isPlaying) {
-        audio.pause();
-      } else {
-        audio.playbackRate = currentSpeed;
-        setIsPlaying(true);
-        audio.play().catch((e) => {
-          console.error('Server audio play failed:', e);
-          setIsPlaying(false);
-          alert('Failed to play audio. Check the URL or try again.');
-        });
-      }
-      return;
-    }
-
-    if (!text && !(audioUrl && !ttsAvailable)) {
-      console.warn('No text to play and no server audio available');
-    }
-  };
-
-  const handleSpeedChange = async (newSpeed: number) => {
-    if (newSpeed === undefined || newSpeed === null || isNaN(newSpeed) || !isFinite(newSpeed)) return;
-    const validSpeed = Math.max(0.1, Math.min(10, newSpeed));
-    setSpeed(validSpeed);
-
-    if (audioRef.current) {
-      audioRef.current.playbackRate = validSpeed;
-      return;
-    }
-
-    if (text && isPlaying) {
-      stopSpeaking();
-      setIsPlaying(false);
-      setTimeout(async () => {
-        try {
-          setIsPlaying(true);
-          await speakText({
-            text,
-            lang: ttsLang,
-            rate: validSpeed,
-            voice: getVoiceForTts(),
-          });
-        } catch (error) {
-          console.error('TTS error on speed change:', error);
-        } finally {
-          setIsPlaying(false);
-        }
-      }, 200);
-    }
-  };
-
+  // Render
   return (
     <div className="space-y-2">
       <div className="flex items-center space-x-2 flex-wrap">
         <button
           onClick={togglePlay}
-          className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center hover:from-blue-600 hover:to-blue-700 shadow-md transition-all active:scale-95"
+          disabled={!audioUrl}
+          className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center hover:from-blue-600 hover:to-blue-700 shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isPlaying ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="4" width="4" height="16" />
+              <rect x="6"  y="4" width="4" height="16" />
               <rect x="14" y="4" width="4" height="16" />
             </svg>
           ) : (
@@ -294,40 +168,25 @@ export default function AudioPlayer({
             </svg>
           )}
         </button>
+
         <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
-          <button
-            onClick={() => handleSpeedChange(0.5)}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-              Math.abs(speed - 0.5) < 0.01 
-                ? 'bg-blue-500 text-white shadow-sm' 
-                : 'bg-transparent text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            0.5x
-          </button>
-          <button
-            onClick={() => handleSpeedChange(1.0)}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-              Math.abs(speed - 1.0) < 0.01 
-                ? 'bg-blue-500 text-white shadow-sm' 
-                : 'bg-transparent text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            1x
-          </button>
-          <button
-            onClick={() => handleSpeedChange(1.5)}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-              Math.abs(speed - 1.5) < 0.01
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'bg-transparent text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            1.5x
-          </button>
+          {([0.5, 1.0, 1.5] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => handleSpeedChange(s)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                Math.abs(speed - s) < 0.01
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-transparent text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {s === 1.0 ? '1x' : `${s}x`}
+            </button>
+          ))}
         </div>
+
         <button
-          onClick={() => setShowText(!showText)}
+          onClick={() => setShowText(v => !v)}
           className="text-xs text-gray-600 hover:text-gray-900 font-medium px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
         >
           {showText ? 'Hide text' : 'Show text'}
@@ -339,8 +198,14 @@ export default function AudioPlayer({
           Translate
         </button>
       </div>
+
       {showText && text && (
         <p className="text-sm text-gray-700 mt-2 leading-relaxed">{text}</p>
+      )}
+
+      {/* Waiting for audio URL */}
+      {!audioUrl && text && (
+        <p className="text-xs text-gray-400 mt-1">⏳ Loading audio...</p>
       )}
     </div>
   );

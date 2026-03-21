@@ -4,13 +4,9 @@ import {
   DEFAULT_USER_SETTINGS,
   EnglishLevel,
   PracticeLanguage,
-  HEBREW_FIXED_AI_SPEAKER_ID,
   loadUserSettings,
   saveUserSettings,
 } from '../utils/userSettings';
-import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../utils/aiSpeakers';
-import { AISpeaker } from '../utils/userSettings';
-import { getVoicesForPracticeLanguage, getAvailableVoices, waitForVoices, waitForVoicesWithRetry, speakText, stopSpeaking } from '../utils/speechSynthesis';
 
 type LangOption = { code: string; name: string };
 
@@ -18,7 +14,6 @@ type LangOption = { code: string; name: string };
 // If you want the full list, we can expand this, but this already covers the vast majority of use-cases.
 const GOOGLE_TRANSLATE_LANGUAGES: LangOption[] = [
   { code: 'ru', name: 'Russian' },
-  { code: 'ko', name: 'Korean' },
   { code: 'ja', name: 'Japanese' },
   { code: 'zh', name: 'Chinese (Simplified)' },
   { code: 'zh-TW', name: 'Chinese (Traditional)' },
@@ -93,13 +88,10 @@ export default function Settings() {
   const [targetLanguage, setTargetLanguage] = useState<string>(initial.targetLanguage || DEFAULT_USER_SETTINGS.targetLanguage);
   const [practiceLanguage, setPracticeLanguage] = useState<PracticeLanguage>(initial.practiceLanguage ?? DEFAULT_USER_SETTINGS.practiceLanguage);
   const [englishLevel, setEnglishLevel] = useState<EnglishLevel>(initial.englishLevel || DEFAULT_USER_SETTINGS.englishLevel);
-  const [aiSpeakerId, setAiSpeakerId] = useState<string | undefined>(initial.aiSpeakerId);
   const [languageQuery, setLanguageQuery] = useState('');
   const [isLangOpen, setIsLangOpen] = useState(false);
   const langWrapRef = useRef<HTMLDivElement | null>(null);
   const langSearchRef = useRef<HTMLInputElement | null>(null);
-  const [aiSpeakers, setAiSpeakers] = useState<AISpeaker[]>(DEFAULT_AI_SPEAKERS);
-  const [previewingSpeakerId, setPreviewingSpeakerId] = useState<string | null>(null);
 
   const filteredLanguages = useMemo(() => {
     const q = languageQuery.trim().toLowerCase();
@@ -114,11 +106,6 @@ export default function Settings() {
   const selectedLang = useMemo(() => {
     return GOOGLE_TRANSLATE_LANGUAGES.find((l) => l.code === targetLanguage) || null;
   }, [targetLanguage]);
-
-  const hebrewSpeaker = useMemo(
-    () => aiSpeakers.find((s) => s.id === HEBREW_FIXED_AI_SPEAKER_ID),
-    [aiSpeakers]
-  );
 
   useEffect(() => {
     if (!isLangOpen) return;
@@ -141,74 +128,6 @@ export default function Settings() {
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [isLangOpen]);
 
-  // Load and assign voices to speakers (by practice language)
-  useEffect(() => {
-    waitForVoices().then((voices) => {
-      const assigned = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices, practiceLanguage);
-      setAiSpeakers(assigned);
-
-      if (!aiSpeakerId && assigned.length > 0) {
-        setAiSpeakerId(assigned[0].id);
-        saveUserSettings({ aiSpeakerId: assigned[0].id });
-      }
-    });
-  }, [practiceLanguage]);
-
-  const handlePreviewVoice = async (speaker: AISpeaker) => {
-    if (previewingSpeakerId === speaker.id) {
-      stopSpeaking();
-      setPreviewingSpeakerId(null);
-      return;
-    }
-
-    stopSpeaking();
-    setPreviewingSpeakerId(speaker.id);
-
-    if (practiceLanguage === 'he') {
-      await waitForVoicesWithRetry(2000);
-    } else {
-      await waitForVoices();
-    }
-    const langVoices = getVoicesForPracticeLanguage(practiceLanguage);
-    const voice = langVoices.find((v) => v.name === speaker.voiceName) || langVoices[0];
-    const lang = practiceLanguage === 'he' ? 'he-IL' : 'en-US';
-    const previewText = practiceLanguage === 'he' ? 'שלום! זו הקול שלי. איך אתה אוהב את זה?' : 'Hello! This is my voice. How do you like it?';
-
-    const voiceToUse = voice || (practiceLanguage === 'he' ? getAvailableVoices()[0] : undefined);
-    if (practiceLanguage === 'he' && !voice) {
-      if (getAvailableVoices().length === 0) {
-        setPreviewingSpeakerId(null);
-        alert(
-          'No TTS voices loaded. Close this page, fully quit the browser, then reopen and try again after adding Hebrew.'
-        );
-        return;
-      }
-      const msg =
-        'No Hebrew TTS voice found. Try: 1) Windows: Settings → Time & language → Language → Hebrew → Options → install Speech if needed. 2) Fully close the browser, reopen, and refresh this page.';
-      console.warn(msg);
-      setPreviewingSpeakerId(null);
-      alert(msg);
-      return;
-    }
-
-    try {
-      await speakText({
-        text: previewText,
-        lang,
-        rate: 1.0,
-        voice: voiceToUse || undefined,
-      });
-    } catch (error) {
-      console.error('Preview voice error:', error);
-      if (practiceLanguage === 'he') {
-        alert(
-          'Hebrew preview failed. Restart the browser and refresh this page after adding Hebrew Speech in system settings.'
-        );
-      }
-    } finally {
-      setPreviewingSpeakerId(null);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
@@ -342,110 +261,7 @@ export default function Settings() {
             </p>
           </div>
 
-          {practiceLanguage === 'he' ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                AI voice (Hebrew)
-              </label>
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
-                <p className="text-sm text-gray-700">
-                  Hebrew practice uses a single AI voice (first available Hebrew system voice for TTS, or
-                  server-generated audio when TTS is not available). Your English speaker choice is kept for
-                  when you switch back to English.
-                </p>
-                {hebrewSpeaker && (
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <img
-                      src={hebrewSpeaker.photo}
-                      alt=""
-                      className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
-                    />
-                    <span className="text-sm font-medium text-gray-900">{hebrewSpeaker.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handlePreviewVoice(hebrewSpeaker)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                        previewingSpeakerId === HEBREW_FIXED_AI_SPEAKER_ID
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      {previewingSpeakerId === HEBREW_FIXED_AI_SPEAKER_ID ? '⏸ Stop' : '▶ Preview voice'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                AI Speaker
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {aiSpeakers.map((speaker) => {
-                  const isSelected = speaker.id === aiSpeakerId;
-                  const isPreviewing = previewingSpeakerId === speaker.id;
-                  return (
-                    <div
-                      key={speaker.id}
-                      className={`relative border-2 rounded-lg p-4 cursor-pointer transition-all ${
-                        isSelected
-                          ? 'border-indigo-500 bg-indigo-50'
-                          : 'border-gray-200 hover:border-gray-300 bg-white'
-                      }`}
-                      onClick={() => {
-                        setAiSpeakerId(speaker.id);
-                        saveUserSettings({ aiSpeakerId: speaker.id });
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={speaker.photo}
-                          alt={speaker.name}
-                          className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
-                        />
-                        <div className="flex-1">
-                          <div className="font-semibold text-gray-900">{speaker.name}</div>
-                          <div className="text-xs text-gray-500 capitalize">
-                            {speaker.gender} • {speaker.age}
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePreviewVoice(speaker);
-                          }}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                            isPreviewing
-                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {isPreviewing ? '⏸ Stop' : '▶ Preview'}
-                        </button>
-                      </div>
-                      {isSelected && (
-                        <div className="absolute top-2 right-2">
-                          <svg
-                            width="20"
-                            height="20"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            className="text-indigo-600"
-                          >
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-xs text-gray-500">
-                Select an AI speaker and preview their voice. This voice will be used for AI responses.
-              </p>
-            </div>
-          )}
+
 
           <div className="pt-4 border-t border-gray-200">
             {/* <button className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">

@@ -16,6 +16,9 @@ interface ConversationViewProps {
   onRestartConversation: () => void;
   restartNonce: number;
   onPatchMessage: (messageId: string, patch: Partial<Message>) => void;
+  pendingAutoplayAiMessageId: string | null;
+  onSetPendingAutoplayAiMessageId: (id: string | null) => void;
+  onAutoplayConsumed: () => void;
 }
 
 export default function ConversationView({
@@ -32,6 +35,9 @@ export default function ConversationView({
   onRestartConversation,
   restartNonce,
   onPatchMessage,
+  pendingAutoplayAiMessageId,
+  onSetPendingAutoplayAiMessageId,
+  onAutoplayConsumed,
 }: ConversationViewProps) {
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-gray-50 via-blue-50/20 to-indigo-50/10 min-h-0">
@@ -70,6 +76,8 @@ export default function ConversationView({
           onRequestFeedback={onRequestFeedback}
           feedbackLoadingIds={feedbackLoadingIds}
           autoPlayAudio={autoPlayAudio}
+          pendingAutoplayAiMessageId={pendingAutoplayAiMessageId}
+          onAutoplayConsumed={onAutoplayConsumed}
         />
       </div>
 
@@ -85,6 +93,7 @@ export default function ConversationView({
           autoPlayAudio={autoPlayAudio}
           restartNonce={restartNonce}
           onPatchMessage={onPatchMessage}
+          onSetPendingAutoplayAiMessageId={onSetPendingAutoplayAiMessageId}
         />
       </div>
     </div>
