@@ -12,6 +12,7 @@ import {
   startConversation,
   uploadMessageAudio,
 } from '../../services/api';
+import { loadUserSettings } from '../../utils/userSettings';
 
 function generateConversationId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -360,6 +361,7 @@ export default function ConversationScreen() {
           {currentConversationId && (
             <div className="flex-1 min-h-0">
               <ConversationView
+                practiceLanguage={loadUserSettings().practiceLanguage}
                 messages={messages}
                 isProcessing={isProcessing}
                 conversationId={currentConversationId}
@@ -388,7 +390,7 @@ export default function ConversationScreen() {
         <div className="h-full flex flex-col">
           {/* Top Bar */}
           <div className="bg-gradient-to-r from-blue-500 to-blue-600 shadow-md px-4 h-14 min-h-[56px] max-h-[56px] flex items-center justify-between">
-            <h1 className="text-lg font-bold text-white leading-none">AI English Practice</h1>
+            <h1 className="text-lg font-bold text-white leading-none">AI Language Practice</h1>
             <button
               onClick={() => navigate('/settings')}
               className="text-white hover:text-white text-sm font-medium px-3 h-8 rounded-lg hover:bg-white/20 transition-colors flex items-center"
@@ -413,6 +415,7 @@ export default function ConversationScreen() {
           <>
             <div className="flex-1 min-h-0">
               <ConversationView
+                practiceLanguage={loadUserSettings().practiceLanguage}
                 messages={messages}
                 isProcessing={isProcessing}
                 conversationId={currentConversationId}

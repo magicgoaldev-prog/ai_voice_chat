@@ -6,6 +6,7 @@ import { Message } from '../../types';
 import { requestMicrophoneAccess, getMicrophonePermissionInstructions, requiresHTTPS, isMobile } from '../../utils/permissionHelper';
 
 interface MessageComposerProps {
+  practiceLanguage: 'en' | 'he';
   conversationId: string;
   messages: Message[];
   isProcessing: boolean;
@@ -60,6 +61,7 @@ function SendIcon() {
 }
 
 export default function MessageComposer({
+  practiceLanguage,
   conversationId,
   messages,
   isProcessing,
@@ -75,6 +77,7 @@ export default function MessageComposer({
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
 
   const latestTranscriptRef = useRef<string>('');
+  const sttLang = practiceLanguage === 'he' ? 'he-IL' : 'en-US';
 
   const { startRecording: startAudioRecording, stopRecording: stopAudioRecording } = useAudioRecorder();
 
@@ -89,7 +92,7 @@ export default function MessageComposer({
     abort: abortSpeech,
     reset: resetSpeech,
   } = useSpeechRecognition({
-    language: 'en-US',
+    language: sttLang,
     continuous: true,
     interimResults: true,
   });

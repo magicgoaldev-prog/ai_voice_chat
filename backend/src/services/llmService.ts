@@ -23,71 +23,48 @@ let lastQuotaErrorTime = 0;
 const QUOTA_ERROR_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
 export async function correctText(
-  text: string
+  text: string,
+  practiceLanguage: 'en' | 'he' = 'en'
 ): Promise<{ correctedText: string; explanation: string }> {
-  // Try OpenAI API if available, otherwise use simple correction
   const openaiApiKey = process.env.OPENAI_API_KEY;
-  
-  // Check if we should skip API call due to recent quota error
+
   const timeSinceLastError = Date.now() - lastQuotaErrorTime;
   if (quotaExceeded && timeSinceLastError < QUOTA_ERROR_COOLDOWN) {
-    console.log('Skipping OpenAI API call due to recent quota error, using simple correction');
     return simpleTextCorrection(text);
   }
-  
-  // Reset quota error flag after cooldown period
   if (quotaExceeded && timeSinceLastError >= QUOTA_ERROR_COOLDOWN) {
     quotaExceeded = false;
-    console.log('Quota error cooldown expired, retrying OpenAI API');
   }
-  
+
   if (openaiApiKey) {
     try {
       const OpenAI = require('openai');
       const openai = new OpenAI({ apiKey: openaiApiKey });
 
-      const prompt = `You will evaluate the user's English.
+      const isHebrew = practiceLanguage === 'he';
+      const prompt = isHebrew
+        ? `Evaluate the user's Hebrew. Only correct if clearly ungrammatical or unnatural. If fine, keep unchanged. Reply in Hebrew for explanation.\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`
+        : `You will evaluate the user's English. Do NOT focus on punctuation/capitalization. Only correct if clearly ungrammatical or unnatural. If natural enough, keep unchanged.\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`;
 
-IMPORTANT:
-- Do NOT focus on punctuation, capitalization, or minor style.
-- Only correct if the sentence is clearly ungrammatical OR significantly unnatural compared to native speakers.
-- If it's already natural enough, keep it unchanged and explain briefly that it's fine.
-
-User text:
-"${text}"
-
-Format your response as JSON:
-{
-  "corrected": "[corrected sentence]",
-  "explanation": "[brief explanation of changes or why it's fine]"
-}`;
+      const systemContent = isHebrew
+        ? 'You are a friendly Hebrew coach. Correct major grammar only. If no correction needed, keep original and explain briefly in Hebrew.'
+        : 'You are a strict but friendly English coach. Only correct major grammar or strongly unnatural phrasing. If no meaningful correction is needed, keep the original and say it sounds natural.';
 
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
-          {
-            role: 'system',
-            content:
-              'You are a strict but friendly English coach. ' +
-              'Only correct major grammar or strongly unnatural phrasing. ' +
-              'Ignore punctuation/capitalization unless it changes meaning. ' +
-              'If no meaningful correction is needed, keep the original text and say it sounds natural.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
+          { role: 'system', content: systemContent },
+          { role: 'user', content: prompt },
         ],
         response_format: { type: 'json_object' },
         temperature: 0.3,
       });
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
-      // Reset quota error flag on success
       quotaExceeded = false;
       return {
         correctedText: result.corrected || text,
-        explanation: result.explanation || 'No errors found.',
+        explanation: result.explanation || (isHebrew ? 'לא נמצאו שגיאות.' : 'No errors found.'),
       };
     } catch (error: any) {
       // Check if it's a quota error
@@ -115,63 +92,50 @@ export async function generateResponse(
   userText: string,
   sessionId?: string,
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
-  englishLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner'
+  englishLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner',
+  practiceLanguage: 'en' | 'he' = 'en'
 ): Promise<string> {
-  // Try OpenAI API if available, otherwise use simple responses
   const openaiApiKey = process.env.OPENAI_API_KEY;
-  
-  // Debug: Log API key status
+
   if (!openaiApiKey) {
-    console.warn('⚠️ OPENAI_API_KEY not found in environment variables. Using rule-based responses.');
-    console.warn('💡 To enable AI responses, set OPENAI_API_KEY in your .env file');
-  } else {
-    console.log('✅ OPENAI_API_KEY found, attempting to use OpenAI API');
+    console.warn('⚠️ OPENAI_API_KEY not found. Using rule-based responses.');
   }
-  
-  // Check if we should skip API call due to recent quota error
+
   const timeSinceLastError = Date.now() - lastResponseQuotaErrorTime;
   if (responseQuotaExceeded && timeSinceLastError < QUOTA_ERROR_COOLDOWN) {
-    console.log('⏸️ Skipping OpenAI API call for response generation due to recent quota error, using simple response');
-    // Fall through to simple responses
+    // fall through to simple responses
   } else {
-    // Reset quota error flag after cooldown period
     if (responseQuotaExceeded && timeSinceLastError >= QUOTA_ERROR_COOLDOWN) {
       responseQuotaExceeded = false;
-      console.log('🔄 Response quota error cooldown expired, retrying OpenAI API');
     }
-    
+
     if (openaiApiKey) {
       try {
-        console.log('🤖 Calling OpenAI API with conversation history:', {
-          historyLength: conversationHistory.length,
-          userText: userText.substring(0, 50),
-        });
-        
         const OpenAI = require('openai');
         const openai = new OpenAI({ apiKey: openaiApiKey });
 
         const levelGuide =
           englishLevel === 'beginner'
-            ? 'Use simple words and short sentences (A2). Avoid idioms and complex grammar. Ask simple follow-up questions.'
+            ? practiceLanguage === 'he'
+              ? 'Use simple words and short sentences. Avoid idioms and complex grammar. Ask simple follow-up questions. Respond only in Hebrew.'
+              : 'Use simple words and short sentences (A2). Avoid idioms and complex grammar. Ask simple follow-up questions.'
             : englishLevel === 'intermediate'
-              ? 'Use natural everyday English (B1-B2). Keep it friendly and conversational. Explain briefly if needed.'
-              : 'Use natural, rich English (C1). You can use idioms lightly. Keep it concise but engaging.';
+              ? practiceLanguage === 'he'
+                ? 'Use natural everyday Hebrew. Keep it friendly and conversational. Respond only in Hebrew.'
+                : 'Use natural everyday English (B1-B2). Keep it friendly and conversational. Explain briefly if needed.'
+              : practiceLanguage === 'he'
+                ? 'Use natural, richer Hebrew while staying concise. Respond only in Hebrew.'
+                : 'Use natural, rich English (C1). You can use idioms lightly. Keep it concise but engaging.';
 
         const systemPrompt =
-          `You are a friendly English conversation partner. Respond naturally to what the user says, ` +
-          `as if you're having a casual conversation. Keep responses concise (1-2 sentences). ` +
-          `English level: ${englishLevel}. ${levelGuide} ` +
-          `Remember the context of previous messages in the conversation.`;
+          practiceLanguage === 'he'
+            ? `You are a friendly Hebrew conversation partner. Respond naturally in Hebrew to what the user says, as if you're having a casual conversation. Keep responses concise (1-2 sentences). Level: ${englishLevel}. ${levelGuide} Remember the context of previous messages. Respond only in Hebrew.`
+            : `You are a friendly English conversation partner. Respond naturally to what the user says, as if you're having a casual conversation. Keep responses concise (1-2 sentences). English level: ${englishLevel}. ${levelGuide} Remember the context of previous messages in the conversation.`;
 
-        // Build messages array with conversation history
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-          {
-            role: 'system',
-            content: systemPrompt,
-          },
+          { role: 'system', content: systemPrompt },
         ];
 
-        // Add conversation history (last 6 messages for cost/latency)
         conversationHistory.slice(-6).forEach((msg) => {
           messages.push({
             role: msg.role === 'user' ? 'user' : 'assistant',
@@ -179,28 +143,21 @@ export async function generateResponse(
           });
         });
 
-        // Add current user message
-        messages.push({
-          role: 'user',
-          content: userText,
-        });
-
-        console.log('📤 Sending to OpenAI:', {
-          messageCount: messages.length,
-          model: 'gpt-4o-mini',
-        });
+        messages.push({ role: 'user', content: userText });
 
         const response = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
-          messages: messages,
+          messages,
           temperature: 0.7,
           max_tokens: 120,
         });
 
-        const aiResponse = response.choices[0].message.content || "I'm here to help you practice English!";
-        console.log('✅ OpenAI API response received:', aiResponse.substring(0, 50));
-        
-        // Reset quota error flag on success
+        const defaultResponse =
+          practiceLanguage === 'he'
+            ? 'אני כאן כדי לעזור לך לתרגל עברית!'
+            : "I'm here to help you practice English!";
+        const aiResponse = response.choices[0].message.content || defaultResponse;
+
         responseQuotaExceeded = false;
         return aiResponse;
       } catch (error: any) {
@@ -226,47 +183,59 @@ export async function generateResponse(
 
   // Simple rule-based responses (free alternative)
   const lowerText = userText.toLowerCase();
-  
+
+  if (practiceLanguage === 'he') {
+    if (/\b(שלום|היי|הי)\b/.test(userText) || lowerText.includes('hello') || lowerText.includes('hi')) {
+      return 'שלום! איך אתה היום?';
+    }
+    if (/\b(איך אתה|מה נשמע)\b/.test(userText) || lowerText.includes('how are you')) {
+      return 'אני בסדר, תודה! מה איתך?';
+    }
+    if (/\b(תודה|תודה רבה)\b/.test(userText) || lowerText.includes('thank you') || lowerText.includes('thanks')) {
+      return 'בבקשה! בהצלחה בתרגול!';
+    }
+    if (/\b(ביי|להתראות)\b/.test(userText) || lowerText.includes('goodbye') || lowerText.includes('bye')) {
+      return 'להתראות! היה נעים לדבר איתך!';
+    }
+    return 'זה מעניין! ספר לי עוד.';
+  }
+
   if (lowerText.includes('hello') || lowerText.includes('hi') || lowerText.includes('hey')) {
     return "Hello! How are you today?";
   }
-  
   if (lowerText.includes('how are you')) {
     return "I'm doing great, thank you for asking! How about you?";
   }
-  
   if (lowerText.includes('thank you') || lowerText.includes('thanks')) {
     return "You're welcome! Keep practicing!";
   }
-  
   if (lowerText.includes('goodbye') || lowerText.includes('bye')) {
     return "Goodbye! It was nice talking with you!";
   }
-  
-  // Default response
   return "That's interesting! Can you tell me more about that?";
 }
 
 export async function generateSuggestedReplies(
   lastAiText: string,
-  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+  practiceLanguage: 'en' | 'he' = 'en'
 ): Promise<string[]> {
   const openaiApiKey = process.env.OPENAI_API_KEY;
+  const isHebrew = practiceLanguage === 'he';
 
   if (openaiApiKey) {
     try {
       const OpenAI = require('openai');
       const openai = new OpenAI({ apiKey: openaiApiKey });
 
-      const systemPrompt =
-        'You generate 3 short, natural, varied reply suggestions for the USER. ' +
-        'Keep them conversational and easy to speak. Return JSON only.';
+      const systemPrompt = isHebrew
+        ? 'You generate 3 short, natural reply suggestions in Hebrew for the user. Return JSON only: {"suggestions":["...","...","..."]}'
+        : 'You generate 3 short, natural, varied reply suggestions for the USER. Keep them conversational and easy to speak. Return JSON only.';
 
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt },
       ];
 
-      // Add a small amount of context (last 6 turns max)
       conversationHistory.slice(-6).forEach((m) => {
         messages.push({
           role: m.role === 'user' ? 'user' : 'assistant',
@@ -274,16 +243,13 @@ export async function generateSuggestedReplies(
         });
       });
 
-      messages.push({
-        role: 'assistant',
-        content: lastAiText,
-      });
+      messages.push({ role: 'assistant', content: lastAiText });
 
       messages.push({
         role: 'user',
-        content:
-          'Suggest 3 possible user replies to the assistant message above. ' +
-          'Format as JSON: {"suggestions":["...","...","..."]}',
+        content: isHebrew
+          ? 'Suggest 3 possible user replies in Hebrew to the assistant message above. Format as JSON: {"suggestions":["...","...","..."]}'
+          : 'Suggest 3 possible user replies to the assistant message above. Format as JSON: {"suggestions":["...","...","..."]}',
       });
 
       const response = await openai.chat.completions.create({
@@ -309,13 +275,20 @@ export async function generateSuggestedReplies(
 
   // Fallback suggestions (rule-based)
   const base = lastAiText.trim();
+  if (isHebrew) {
+    const genericHe = ['זה הגיוני. תוכל לתת דוגמה?', 'תודה! תשאל שאלת המשך?', 'אני רואה. הנה התשובה שלי:'];
+    const looksLikeQuestion = /[?]$/.test(base) || /\b(מה|למה|איך|מתי|איפה|איזה)\b/.test(base);
+    if (looksLikeQuestion) {
+      return ['שאלה טובה. אני חושב ש...', 'אני לא בטוח, אבל אולי...', 'אסביר:'];
+    }
+    return genericHe;
+  }
+
   const generic = [
     "That makes sense. Can you give me an example?",
     "Thanks! Could you ask me a follow-up question?",
     "I see. Here's my answer: ",
   ];
-
-  // If assistant asked a question, provide direct reply styles
   const looksLikeQuestion = /[?]$/.test(base) || /\b(what|why|how|when|where|which)\b/i.test(base);
   if (looksLikeQuestion) {
     return [
@@ -324,6 +297,5 @@ export async function generateSuggestedReplies(
       "Let me explain: ...",
     ];
   }
-
   return generic;
 }

@@ -15,6 +15,7 @@ interface RecordButtonProps {
   messages?: Message[];
   onMessageSent: (message: Message) => void;
   onProcessingChange: (processing: boolean) => void;
+  practiceLanguage?: 'en' | 'he';
 }
 
 export default function RecordButton({
@@ -22,13 +23,15 @@ export default function RecordButton({
   messages = [],
   onMessageSent,
   onProcessingChange,
+  practiceLanguage = 'en',
 }: RecordButtonProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [finalTranscript, setFinalTranscript] = useState('');
-  const finalTranscriptRef = useRef<string>(''); // Use ref to accumulate final transcripts
+  const finalTranscriptRef = useRef<string>('');
   const isProcessingRef = useRef(false);
   const stopRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const { startRecording: startAudioRecording, stopRecording: stopAudioRecording } = useAudioRecorder();
+  const sttLang = practiceLanguage === 'he' ? 'he-IL' : 'en-US';
 
   const { 
     isListening, 
@@ -38,7 +41,7 @@ export default function RecordButton({
     stopListening,
     abort: abortSpeech
   } = useSpeechRecognition({
-    language: 'en-US',
+    language: sttLang,
     continuous: true,
     interimResults: true,
     onResult: (text, isFinal) => {

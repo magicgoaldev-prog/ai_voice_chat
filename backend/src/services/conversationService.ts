@@ -5,12 +5,11 @@ export async function processTextMessage(
   text: string,
   sessionId?: string,
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>,
-  englishLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner'
+  englishLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner',
+  practiceLanguage: 'en' | 'he' = 'en'
 ) {
-  // Generate AI Response with conversation history
-  const aiResponseText = await generateResponse(text, sessionId, conversationHistory || [], englishLevel);
+  const aiResponseText = await generateResponse(text, sessionId, conversationHistory || [], englishLevel, practiceLanguage);
 
-  // TTS is handled on frontend with Web Speech API
   return {
     transcription: text,
     aiResponseText,
@@ -18,16 +17,17 @@ export async function processTextMessage(
 }
 
 // On-demand feedback (correction + explanation)
-export async function processFeedback(text: string) {
-  return await correctText(text);
+export async function processFeedback(text: string, practiceLanguage: 'en' | 'he' = 'en') {
+  return await correctText(text, practiceLanguage);
 }
 
 // Suggested replies for last AI message
 export async function processSuggestedReplies(
   lastAiText: string,
-  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  practiceLanguage: 'en' | 'he' = 'en'
 ) {
-  const suggestions = await generateSuggestedReplies(lastAiText, conversationHistory || []);
+  const suggestions = await generateSuggestedReplies(lastAiText, conversationHistory || [], practiceLanguage);
   return { suggestions };
 }
 

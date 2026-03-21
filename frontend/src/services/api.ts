@@ -21,7 +21,7 @@ export async function sendTextMessageStream(
     onAudioDataUrl?: (audioDataUrl: string) => void;
   }
 ): Promise<{ aiResponseText: string; timings?: any }> {
-  const { englishLevel } = loadUserSettings();
+  const { englishLevel, practiceLanguage } = loadUserSettings();
   const start = performance.now();
   const resp = await fetch(`${API_BASE_URL}/conversation/message/stream`, {
     method: 'POST',
@@ -34,6 +34,7 @@ export async function sendTextMessageStream(
       sessionId: sessionId || 'temp-session',
       conversationHistory: conversationHistory || [],
       englishLevel,
+      practiceLanguage: practiceLanguage ?? 'en',
       userMessageId: meta?.userMessageId,
       aiMessageId: meta?.aiMessageId,
       isSuggestedReply: !!meta?.isSuggestedReply,
@@ -140,7 +141,7 @@ export async function sendTextMessage(
   }
 ): Promise<ConversationResponse> {
   try {
-    const { englishLevel } = loadUserSettings();
+    const { englishLevel, practiceLanguage } = loadUserSettings();
     const start = performance.now();
     const response = await axios.post<ConversationResponse>(
       `${API_BASE_URL}/conversation/message`,
@@ -149,6 +150,7 @@ export async function sendTextMessage(
         sessionId: sessionId || 'temp-session',
         conversationHistory: conversationHistory || [],
         englishLevel,
+        practiceLanguage: practiceLanguage ?? 'en',
         userMessageId: meta?.userMessageId,
         aiMessageId: meta?.aiMessageId,
         isSuggestedReply: !!meta?.isSuggestedReply,
@@ -264,10 +266,12 @@ export async function getFeedback(
   meta?: { conversationId?: string; messageId?: string }
 ): Promise<FeedbackResponse> {
   try {
+    const { practiceLanguage } = loadUserSettings();
     const response = await axios.post<FeedbackResponse>(`${API_BASE_URL}/conversation/feedback`, {
       text,
       conversationId: meta?.conversationId,
       messageId: meta?.messageId,
+      practiceLanguage: practiceLanguage ?? 'en',
     });
     return response.data;
   } catch (error: any) {
@@ -284,9 +288,11 @@ export async function getSuggestions(
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): Promise<SuggestionsResponse> {
   try {
+    const { practiceLanguage } = loadUserSettings();
     const response = await axios.post<SuggestionsResponse>(`${API_BASE_URL}/conversation/suggestions`, {
       lastAiText,
       conversationHistory: conversationHistory || [],
+      practiceLanguage: practiceLanguage ?? 'en',
     });
     return response.data;
   } catch (error: any) {

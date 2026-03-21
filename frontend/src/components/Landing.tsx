@@ -13,7 +13,7 @@ export default function Landing() {
         <div className="mb-8">
           <h1 className="text-5xl font-bold text-gray-900 mb-2">🗣️</h1>
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            Practice Spoken English
+            Practice Spoken Language
           </h2>
           <p className="text-lg text-gray-600">
             Talk naturally. Improve instantly.

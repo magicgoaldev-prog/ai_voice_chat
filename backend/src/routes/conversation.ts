@@ -42,12 +42,14 @@ router.post('/message/stream', async (req, res) => {
       sessionId,
       conversationHistory,
       englishLevel,
+      practiceLanguage: practiceLang,
       userMessageId,
       aiMessageId,
       isSuggestedReply,
       userCreatedAt,
       aiCreatedAt,
     } = req.body || {};
+    const practiceLanguage = practiceLang === 'he' ? 'he' : 'en';
 
     const conversationId = sessionId;
     if (!conversationId || typeof conversationId !== 'string') {
@@ -142,7 +144,7 @@ router.post('/message/stream', async (req, res) => {
     // If no key, fall back to non-stream generation (rule-based inside generateResponse)
     if (!openaiApiKey) {
       const tLlm0 = Date.now();
-      const full = await generateResponse(text.trim(), undefined, history, level);
+      const full = await generateResponse(text.trim(), undefined, history, level, practiceLanguage);
       const tLlm1 = Date.now();
       try {
         await updateMessage(conversationId, aiMessageId, { ai_response_text: full });
@@ -173,15 +175,23 @@ router.post('/message/stream', async (req, res) => {
 
     // Build messages array with system prompt + history + current user message
     const systemPrompt =
-      `You are a friendly English conversation partner. Respond naturally to what the user says, ` +
-      `as if you're having a casual conversation. Keep responses concise (1-2 sentences). ` +
-      `English level: ${level}. ` +
-      (level === 'beginner'
-        ? 'Use simple words and short sentences. Avoid idioms and complex grammar.'
-        : level === 'intermediate'
-          ? 'Use natural everyday English.'
-          : 'Use natural, richer English while staying concise.') +
-      ` Remember the context.`;
+      practiceLanguage === 'he'
+        ? `You are a friendly Hebrew conversation partner. Respond naturally in Hebrew to what the user says, as if you're having a casual conversation. Keep responses concise (1-2 sentences). Level: ${level}. ` +
+          (level === 'beginner'
+            ? 'Use simple words and short sentences. Avoid idioms and complex grammar.'
+            : level === 'intermediate'
+              ? 'Use natural everyday Hebrew.'
+              : 'Use natural, richer Hebrew while staying concise.') +
+          ' Remember the context. Respond only in Hebrew.'
+        : `You are a friendly English conversation partner. Respond naturally to what the user says, ` +
+          `as if you're having a casual conversation. Keep responses concise (1-2 sentences). ` +
+          `English level: ${level}. ` +
+          (level === 'beginner'
+            ? 'Use simple words and short sentences. Avoid idioms and complex grammar.'
+            : level === 'intermediate'
+              ? 'Use natural everyday English.'
+              : 'Use natural, richer English while staying concise.') +
+          ` Remember the context.`;
 
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
@@ -219,7 +229,7 @@ router.post('/message/stream', async (req, res) => {
     // so the UI doesn't end up with an empty assistant message.
     if (!clientClosed && fullText.trim().length === 0) {
       try {
-        const fallback = await generateResponse(text.trim(), undefined, history, level);
+        const fallback = await generateResponse(text.trim(), undefined, history, level, practiceLanguage);
         if (fallback && fallback.trim().length > 0) {
           fullText = fallback;
           sseWrite(res, 'delta', { delta: fallback });
@@ -256,39 +266,36 @@ router.post('/message/stream', async (req, res) => {
       sseWrite(res, 'done', { text: fullText });
     }
 
-    // Generate AI TTS and send audio ASAP via SSE (Engoo-like), then persist to Storage in background.
+    // Generate AI TTS and send audio via SSE for both English and Hebrew (OpenAI TTS supports both).
     const ttsStart = Date.now();
-    if (fullText.trim().length === 0) {
-      // Don't call TTS with empty string (OpenAI returns 400 string_too_short)
-      return res.end();
-    }
-    const ttsJob = (async () => {
-      const aiAudioDataUrl = await generateTTS(fullText, 1.0);
-      const base64 = aiAudioDataUrl.split('base64,')[1];
-      if (!base64) return { aiAudioDataUrl: null as string | null, buffer: null as Buffer | null };
-      const buffer = Buffer.from(base64, 'base64');
-      return { aiAudioDataUrl, buffer };
-    })();
-
-    // Wait a bit for TTS to finish; if it's too slow, don't block forever.
     let ttsResult: { aiAudioDataUrl: string | null; buffer: Buffer | null } | null = null;
-    try {
-      ttsResult = await Promise.race([
-        ttsJob,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000)),
-      ]);
-    } catch (e) {
-      console.warn('AI TTS generation failed (stream route):', e);
+    if (fullText.trim().length > 0) {
+      const ttsJob = (async () => {
+        const aiAudioDataUrl = await generateTTS(fullText, 1.0);
+        const base64 = aiAudioDataUrl.split('base64,')[1];
+        if (!base64) return { aiAudioDataUrl: null as string | null, buffer: null as Buffer | null };
+        const buffer = Buffer.from(base64, 'base64');
+        return { aiAudioDataUrl, buffer };
+      })();
+
+      try {
+        ttsResult = await Promise.race([
+          ttsJob,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000)),
+        ]);
+      } catch (e) {
+        console.warn('AI TTS generation failed (stream route):', e);
+      }
+
+      if (!clientClosed && ttsResult?.aiAudioDataUrl) {
+        sseWrite(res, 'audio', {
+          audioDataUrl: ttsResult.aiAudioDataUrl,
+          tts_ms: Date.now() - ttsStart,
+        });
+      }
     }
 
-    if (!clientClosed && ttsResult?.aiAudioDataUrl) {
-      sseWrite(res, 'audio', {
-        audioDataUrl: ttsResult.aiAudioDataUrl,
-        tts_ms: Date.now() - ttsStart,
-      });
-    }
-
-    // Background: upload to Supabase Storage for persistence (doesn't gate playback)
+    // Background: upload to Supabase Storage for persistence
     if (ttsResult?.buffer) {
       setImmediate(async () => {
         try {
@@ -456,9 +463,10 @@ router.post('/message', async (req, res) => {
     const t0 = Date.now();
     const {
       text,
-      sessionId, // we treat sessionId as conversationId for now
+      sessionId,
       conversationHistory,
       englishLevel,
+      practiceLanguage: practiceLang,
       userMessageId,
       aiMessageId,
       isSuggestedReply,
@@ -470,6 +478,7 @@ router.post('/message', async (req, res) => {
       englishLevel === 'advanced' || englishLevel === 'intermediate' || englishLevel === 'beginner'
         ? englishLevel
         : 'beginner';
+    const practiceLanguage = practiceLang === 'he' ? 'he' : 'en';
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({ error: 'Text is required and cannot be empty.' });
@@ -493,7 +502,7 @@ router.post('/message', async (req, res) => {
 
     // Generate AI text
     const t1 = Date.now();
-    const result = await processTextMessage(text.trim(), conversationId, conversationHistory || [], level);
+    const result = await processTextMessage(text.trim(), conversationId, conversationHistory || [], level, practiceLanguage);
     const t2 = Date.now();
 
     // Insert messages (fast path: don't wait for audio generation)
@@ -537,7 +546,7 @@ router.post('/message', async (req, res) => {
       last_message_at: aiCreatedAt || new Date(Date.now() + 1).toISOString(),
     });
 
-    // Background: generate AI TTS and store to Supabase Storage (if OpenAI key exists)
+    // Background: generate AI TTS and store to Supabase Storage (English and Hebrew)
     setImmediate(async () => {
       try {
         const aiAudioDataUrl = await generateTTS(result.aiResponseText, 1.0);
@@ -555,7 +564,6 @@ router.post('/message', async (req, res) => {
         const url = publicUrlRes.data.publicUrl;
         await updateMessage(conversationId, aiMessageId, { ai_audio_url: url });
       } catch (e) {
-        // Non-fatal
         console.warn('AI TTS background job failed:', e);
       }
     });
@@ -633,12 +641,13 @@ router.post('/message/:id/audio', upload.single('file'), async (req, res) => {
 
 router.post('/feedback', async (req, res) => {
   try {
-    const { text, conversationId, messageId } = req.body;
+    const { text, conversationId, messageId, practiceLanguage: practiceLang } = req.body;
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({ error: 'Text is required and cannot be empty.' });
     }
+    const practiceLanguage = practiceLang === 'he' ? 'he' : 'en';
 
-    const result = await processFeedback(text.trim());
+    const result = await processFeedback(text.trim(), practiceLanguage);
 
     // Optional persistence: if conversationId + messageId are provided, store feedback to DB
     if (conversationId && messageId) {
@@ -663,12 +672,13 @@ router.post('/feedback', async (req, res) => {
 
 router.post('/suggestions', async (req, res) => {
   try {
-    const { lastAiText, conversationHistory } = req.body;
+    const { lastAiText, conversationHistory, practiceLanguage: practiceLang } = req.body;
     if (!lastAiText || typeof lastAiText !== 'string' || lastAiText.trim().length === 0) {
       return res.status(400).json({ error: 'lastAiText is required and cannot be empty.' });
     }
+    const practiceLanguage = practiceLang === 'he' ? 'he' : 'en';
 
-    const result = await processSuggestedReplies(lastAiText.trim(), conversationHistory || []);
+    const result = await processSuggestedReplies(lastAiText.trim(), conversationHistory || [], practiceLanguage);
     res.json(result);
   } catch (error: any) {
     console.error('Error generating suggestions:', error);

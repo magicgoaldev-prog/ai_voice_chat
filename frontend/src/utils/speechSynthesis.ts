@@ -162,24 +162,47 @@ export function getAvailableVoices(): SpeechSynthesisVoice[] {
 }
 
 export function getEnglishVoices(): SpeechSynthesisVoice[] {
+  return getVoicesForPracticeLanguage('en');
+}
+
+export function getVoicesForPracticeLanguage(lang: 'en' | 'he'): SpeechSynthesisVoice[] {
   const voices = getAvailableVoices();
-  return voices.filter(voice => 
-    voice.lang.startsWith('en') || 
-    voice.lang.includes('English')
+  if (lang === 'he') {
+    return voices.filter(
+      (v) =>
+        v.lang.startsWith('he') ||
+        v.lang.toLowerCase().startsWith('he') ||
+        v.name?.toLowerCase().includes('hebrew')
+    );
+  }
+  return voices.filter(
+    (v) => v.lang.startsWith('en') || v.lang.includes('English')
   );
 }
 
-// Wait for voices to be loaded
+// Wait for voices to be loaded (Chrome fires voiceschanged asynchronously)
 export function waitForVoices(): Promise<SpeechSynthesisVoice[]> {
   return new Promise((resolve) => {
+    const done = (list: SpeechSynthesisVoice[]) => {
+      resolve(list);
+    };
     const voices = getAvailableVoices();
     if (voices.length > 0) {
-      resolve(voices);
+      done(voices);
       return;
     }
-
     window.speechSynthesis.onvoiceschanged = () => {
-      resolve(getAvailableVoices());
+      done(getAvailableVoices());
     };
+  });
+}
+
+// Wait for voices and optionally retry after a delay (helps when Hebrew was just added and list updates late)
+export function waitForVoicesWithRetry(retryMs = 2000): Promise<SpeechSynthesisVoice[]> {
+  return waitForVoices().then((first) => {
+    if (first.length > 0) return first;
+    return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+      setTimeout(() => resolve(getAvailableVoices()), retryMs);
+    });
   });
 }

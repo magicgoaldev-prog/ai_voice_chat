@@ -3,7 +3,7 @@ import AudioPlayer from './AudioPlayer';
 import ErrorExplanation from './ErrorExplanation';
 import { Message } from '../../types';
 import { translateText } from '../../services/api';
-import { loadUserSettings } from '../../utils/userSettings';
+import { loadUserSettings, getEffectiveAiSpeakerId } from '../../utils/userSettings';
 import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../../utils/aiSpeakers';
 import { AISpeaker } from '../../utils/userSettings';
 import { waitForVoices } from '../../utils/speechSynthesis';
@@ -84,15 +84,20 @@ export default function MessageBubble({
   const [isTranslating, setIsTranslating] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState<AISpeaker | null>(null);
 
-  // Load selected speaker info
+  // Load selected speaker info (by practice language)
+  const practiceLanguage = loadUserSettings().practiceLanguage ?? 'en';
   useEffect(() => {
     waitForVoices().then((voices) => {
       const settings = loadUserSettings();
-      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices);
-      const speaker = speakers.find((s) => s.id === settings.aiSpeakerId) || speakers[0];
+      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices, settings.practiceLanguage ?? 'en');
+      const effectiveId = getEffectiveAiSpeakerId(
+        settings.practiceLanguage ?? 'en',
+        settings.aiSpeakerId
+      );
+      const speaker = speakers.find((s) => s.id === effectiveId) || speakers[0];
       setSelectedSpeaker(speaker || null);
     });
-  }, []);
+  }, [practiceLanguage]);
 
   // Reset UI toggles when message changes
   useEffect(() => {

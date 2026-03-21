@@ -50,11 +50,24 @@ export const DEFAULT_AI_SPEAKERS: AISpeaker[] = [
 // Tries to assign distinct voices with different characteristics
 export function assignVoicesToSpeakers(
   speakers: AISpeaker[],
-  availableVoices: SpeechSynthesisVoice[]
+  availableVoices: SpeechSynthesisVoice[],
+  practiceLanguage: 'en' | 'he' = 'en'
 ): AISpeaker[] {
-  const englishVoices = availableVoices.filter(
-    (v) => v.lang.startsWith('en') || v.lang.includes('English')
-  );
+  const langVoices =
+    practiceLanguage === 'he'
+      ? availableVoices.filter((v) => v.lang.startsWith('he'))
+      : availableVoices.filter(
+          (v) => v.lang.startsWith('en') || v.lang.includes('English')
+        );
+
+  if (practiceLanguage === 'he') {
+    return speakers.map((speaker, i) => ({
+      ...speaker,
+      voiceName: langVoices[i % langVoices.length]?.name || '',
+    }));
+  }
+
+  const englishVoices = langVoices;
 
   // More comprehensive voice name matching
   const femaleVoices = englishVoices.filter((v) => {

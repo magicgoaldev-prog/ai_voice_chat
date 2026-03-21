@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { speakText, stopSpeaking, getEnglishVoices } from '../../utils/speechSynthesis';
-import { loadUserSettings } from '../../utils/userSettings';
+import { speakText, stopSpeaking, getVoicesForPracticeLanguage } from '../../utils/speechSynthesis';
+import { loadUserSettings, getEffectiveAiSpeakerId } from '../../utils/userSettings';
 import { DEFAULT_AI_SPEAKERS, assignVoicesToSpeakers } from '../../utils/aiSpeakers';
-import { waitForVoices } from '../../utils/speechSynthesis';
+import { waitForVoices, waitForVoicesWithRetry } from '../../utils/speechSynthesis';
 
 // Prevent re-autoplay across remounts during a single app session
 const autoPlayedTtsKeys = new Set<string>();
@@ -16,86 +16,164 @@ interface AudioPlayerProps {
 }
 
 export default function AudioPlayer({
-  audioUrl: _audioUrl,
+  audioUrl,
   text,
   onShowTranslation,
   autoPlay = false,
   autoPlayKey,
 }: AudioPlayerProps) {
+  const practiceLanguage = loadUserSettings().practiceLanguage ?? 'en';
+  const ttsLang = practiceLanguage === 'he' ? 'he-IL' : 'en-US';
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1.0);
-  const [showText, setShowText] = useState(true); // Default to showing text
+  const [showText, setShowText] = useState(true);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [ttsAvailable, setTtsAvailable] = useState(false); // true when we have at least one voice for practice language
   const ttsAutoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevAutoPlayRef = useRef<boolean>(false);
   const prevTextRef = useRef<string>('');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const hasAutoPlayedUrlRef = useRef(false);
 
-  // Load selected speaker's voice
+  // Resolve voice for TTS: prefer selected AI speaker voice, then first voice for practice language (only used when ttsAvailable)
+  const getVoiceForTts = (): SpeechSynthesisVoice | undefined => {
+    if (selectedVoice) return selectedVoice;
+    const langVoices = getVoicesForPracticeLanguage(practiceLanguage);
+    return langVoices[0] || undefined;
+  };
+
+  // Load selected speaker's voice (by practice language); retry for Hebrew when voices load late after adding language
   useEffect(() => {
-    waitForVoices().then((voices) => {
+    const wait = practiceLanguage === 'he' ? waitForVoicesWithRetry(2000) : waitForVoices();
+    wait.then((voices) => {
       const settings = loadUserSettings();
-      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices);
-      const speaker = speakers.find((s) => s.id === settings.aiSpeakerId) || speakers[0];
-      
+      const lang = settings.practiceLanguage ?? 'en';
+      const langVoices = getVoicesForPracticeLanguage(lang);
+      setTtsAvailable(langVoices.length > 0);
+
+      const speakers = assignVoicesToSpeakers(DEFAULT_AI_SPEAKERS, voices, lang);
+      const effectiveId = getEffectiveAiSpeakerId(lang, settings.aiSpeakerId);
+      const speaker = speakers.find((s) => s.id === effectiveId) || speakers[0];
+
       if (speaker?.voiceName) {
-        const englishVoices = getEnglishVoices();
-        const voice = englishVoices.find((v) => v.name === speaker.voiceName);
-        setSelectedVoice(voice || null);
+        const voice = langVoices.find((v) => v.name === speaker.voiceName);
+        setSelectedVoice(voice || langVoices[0] || null);
+      } else {
+        setSelectedVoice(langVoices[0] || null);
       }
     });
-  }, []);
+  }, [practiceLanguage]);
 
   useEffect(() => {
-    // Cleanup any active TTS on unmount
     return () => {
       stopSpeaking();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
     };
   }, []);
 
-  // Auto-play via Web Speech API TTS (fast, no server wait)
+  // Create server audio element only when TTS is not available; when TTS is available we use selected AI speaker voice instead
+  useEffect(() => {
+    if (!audioUrl || ttsAvailable) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+      return;
+    }
+    const audio = new Audio(audioUrl);
+    audio.playbackRate = speed;
+    audioRef.current = audio;
+    const onEnded = () => setIsPlaying(false);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    return () => {
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.pause();
+      audio.src = '';
+      if (audioRef.current === audio) audioRef.current = null;
+    };
+  }, [audioUrl, ttsAvailable]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = speed;
+  }, [speed, audioUrl]);
+
+  // Auto-play: TTS with selected AI speaker when available; otherwise server audio URL
   useEffect(() => {
     if (ttsAutoPlayTimerRef.current) {
       clearTimeout(ttsAutoPlayTimerRef.current);
       ttsAutoPlayTimerRef.current = null;
     }
 
-    const t = (text || '').trim();
-    const key = autoPlayKey || t;
+    const key = autoPlayKey || (text || '').trim() || 'unknown';
     const autoPlayEnabledJustNow = autoPlay && !prevAutoPlayRef.current;
-    const textChanged = t !== prevTextRef.current;
+    const textChanged = (text || '').trim() !== prevTextRef.current;
     prevAutoPlayRef.current = !!autoPlay;
-    prevTextRef.current = t;
+    prevTextRef.current = (text || '').trim();
 
     if (!autoPlay) return;
-    if (!t) return;
-    if (!key) return;
+    if (!key || key === 'unknown') return;
     if (!textChanged && !autoPlayEnabledJustNow) return;
     if (autoPlayedTtsKeys.has(key)) return;
 
-    // Debounce a bit so streaming doesn't speak partial fragments
-    ttsAutoPlayTimerRef.current = setTimeout(async () => {
-      try {
-        const isSpeaking = window.speechSynthesis.speaking ||
-          (window.speechSynthesis as { pending?: boolean }).pending === true;
-        if (isSpeaking) {
-          return;
+    const t = (text || '').trim();
+
+    if (ttsAvailable && t) {
+      ttsAutoPlayTimerRef.current = setTimeout(async () => {
+        try {
+          const isSpeaking = window.speechSynthesis.speaking ||
+            (window.speechSynthesis as { pending?: boolean }).pending === true;
+          if (isSpeaking) return;
+          setIsPlaying(true);
+          autoPlayedTtsKeys.add(key);
+          await speakText({
+            text: t,
+            lang: ttsLang,
+            rate: speed,
+            voice: getVoiceForTts(),
+          });
+        } catch (e) {
+          autoPlayedTtsKeys.delete(key);
+          console.warn('WebSpeech auto-play failed (non-fatal):', e);
+        } finally {
+          setIsPlaying(false);
         }
-        setIsPlaying(true);
-        autoPlayedTtsKeys.add(key);
-        await speakText({ 
-          text: t, 
-          lang: 'en-US', 
-          rate: speed,
-          voice: selectedVoice || undefined,
-        });
-      } catch (e) {
-        // allow retry on next update
-        autoPlayedTtsKeys.delete(key);
-        console.warn('WebSpeech auto-play failed (non-fatal):', e);
-      } finally {
-        setIsPlaying(false);
-      }
-    }, 450);
+      }, 450);
+      return () => {
+        if (ttsAutoPlayTimerRef.current) {
+          clearTimeout(ttsAutoPlayTimerRef.current);
+          ttsAutoPlayTimerRef.current = null;
+        }
+      };
+    }
+
+    if (!ttsAvailable && audioUrl) {
+      hasAutoPlayedUrlRef.current = true;
+      autoPlayedTtsKeys.add(key);
+      const timer = setTimeout(() => {
+        const audio = audioRef.current;
+        if (audio && audio.src) {
+          setIsPlaying(true);
+          audio.playbackRate = speed;
+          audio.play().catch((e) => {
+            console.warn('Auto-play server audio failed (non-fatal):', e);
+            autoPlayedTtsKeys.delete(key);
+          });
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
 
     return () => {
       if (ttsAutoPlayTimerRef.current) {
@@ -103,140 +181,98 @@ export default function AudioPlayer({
         ttsAutoPlayTimerRef.current = null;
       }
     };
-  }, [autoPlay, autoPlayKey, text, speed, selectedVoice]);
+  }, [autoPlay, autoPlayKey, text, speed, selectedVoice, ttsLang, practiceLanguage, audioUrl, ttsAvailable]);
 
   const togglePlay = async () => {
-    // Use current speed state
-    // This ensures the speed button selection is respected
     let currentSpeed = speed;
-    
-    // Validate speed value
     if (currentSpeed === undefined || currentSpeed === null || isNaN(currentSpeed) || !isFinite(currentSpeed)) {
-      console.warn('Invalid speed value, using default 1.0:', currentSpeed);
       currentSpeed = 1.0;
-      setSpeed(1.0); // Reset to valid value
+      setSpeed(1.0);
     }
-    
-    // Clamp speed to valid range
     currentSpeed = Math.max(0.1, Math.min(10, currentSpeed));
-    
-    console.log('▶️ Toggle play:', { isPlaying, speed: currentSpeed, hasText: !!text });
 
-    // Always use Web Speech API TTS for manual play (consistent voice, avoids mp3 delays).
-    if (!text) {
-      console.warn('No text to play');
+    if (ttsAvailable && text) {
+      if (isPlaying) {
+        stopSpeaking();
+        setIsPlaying(false);
+      } else {
+        const alreadySpeaking =
+          window.speechSynthesis.speaking ||
+          (window.speechSynthesis as { pending?: boolean }).pending === true;
+        if (alreadySpeaking) return;
+        try {
+          setIsPlaying(true);
+          if (!('speechSynthesis' in window)) {
+            throw new Error('Speech synthesis is not supported in this browser.');
+          }
+          await speakText({
+            text,
+            lang: ttsLang,
+            rate: currentSpeed,
+            voice: getVoiceForTts(),
+          });
+        } catch (error: any) {
+          setIsPlaying(false);
+          const isInterrupted = error?.message?.includes('interrupted');
+          if (!isInterrupted && !error?.message?.includes('timeout')) {
+            alert(error?.message || 'Failed to play audio.');
+          }
+        } finally {
+          setIsPlaying(false);
+        }
+      }
       return;
     }
 
-    if (isPlaying) {
-      stopSpeaking();
-      setIsPlaying(false);
-    } else {
-      const alreadySpeaking =
-        window.speechSynthesis.speaking ||
-        (window.speechSynthesis as { pending?: boolean }).pending === true;
-      if (alreadySpeaking) {
-        return;
-      }
-      try {
+    if (!ttsAvailable && audioUrl && audioRef.current) {
+      const audio = audioRef.current;
+      if (isPlaying) {
+        audio.pause();
+      } else {
+        audio.playbackRate = currentSpeed;
         setIsPlaying(true);
-        console.log('🎵 Starting TTS playback:', { 
-          text: text.substring(0, 50), 
-          speed: currentSpeed,
-          textLength: text.length,
-          speedState: speed
+        audio.play().catch((e) => {
+          console.error('Server audio play failed:', e);
+          setIsPlaying(false);
+          alert('Failed to play audio. Check the URL or try again.');
         });
-        
-        // Check if speechSynthesis is available
-        if (!('speechSynthesis' in window)) {
-          throw new Error('Speech synthesis is not supported in this browser. Please use Chrome, Edge, or Safari.');
-        }
-        
-        await speakText({
-          text: text,
-          lang: 'en-US',
-          rate: currentSpeed, // Use the current speed state
-          voice: selectedVoice || undefined,
-        });
-        console.log('✅ TTS playback completed');
-        setIsPlaying(false);
-      } catch (error: any) {
-        console.error('❌ TTS error in AudioPlayer:', {
-          error: error,
-          message: error?.message,
-          name: error?.name,
-          text: text.substring(0, 50),
-        });
-        setIsPlaying(false);
-        
-        // Provide more specific error message
-        let errorMessage = 'Failed to play audio. ';
-        if (error?.message?.includes('not supported')) {
-          errorMessage = 'Speech synthesis is not supported in this browser. Please use Chrome, Edge, or Safari.';
-        } else if (error?.message?.includes('error')) {
-          errorMessage = `Speech synthesis error: ${error.message}`;
-        } else if (error?.message) {
-          errorMessage = error.message;
-        } else {
-          errorMessage += 'Please try again. If the problem persists, try refreshing the page.';
-        }
-        
-        // Only show alert for critical errors; skip for timeout and interrupted
-        const isInterrupted = error?.message?.includes('interrupted');
-        if (isInterrupted) {
-          console.warn('TTS was interrupted by another playback (no alert)');
-        } else if (!error?.message?.includes('timeout')) {
-          alert(errorMessage);
-        } else {
-          console.warn('TTS timeout, but continuing...');
-        }
       }
+      return;
+    }
+
+    if (!text && !(audioUrl && !ttsAvailable)) {
+      console.warn('No text to play and no server audio available');
     }
   };
 
   const handleSpeedChange = async (newSpeed: number) => {
-    // Validate newSpeed
-    if (newSpeed === undefined || newSpeed === null || isNaN(newSpeed) || !isFinite(newSpeed)) {
-      console.warn('Invalid speed value:', newSpeed);
+    if (newSpeed === undefined || newSpeed === null || isNaN(newSpeed) || !isFinite(newSpeed)) return;
+    const validSpeed = Math.max(0.1, Math.min(10, newSpeed));
+    setSpeed(validSpeed);
+
+    if (audioRef.current) {
+      audioRef.current.playbackRate = validSpeed;
       return;
     }
-    
-    // Clamp to valid range
-    const validSpeed = Math.max(0.1, Math.min(10, newSpeed));
-    
-    console.log('🔧 Speed change requested:', { from: speed, to: validSpeed, isPlaying, hasText: !!text });
-    
-    // Update speed state immediately - this is critical
-    setSpeed(validSpeed);
-    
-    // For Web Speech API
-    if (text) {
-      if (isPlaying) {
-        // If currently playing, stop and restart with new speed
-        console.log('🔄 Restarting TTS with new speed:', validSpeed);
-        stopSpeaking();
-        setIsPlaying(false);
-        
-        // Wait a moment for cleanup, then restart with new speed
-        setTimeout(async () => {
-          try {
-            setIsPlaying(true);
-            await speakText({
-              text: text,
-              lang: 'en-US',
-              rate: validSpeed, // Use validated speed
-            });
-            setIsPlaying(false);
-            console.log('✅ TTS restarted with new speed:', validSpeed);
-          } catch (error) {
-            console.error('❌ TTS error on speed change:', error);
-            setIsPlaying(false);
-          }
-        }, 200);
-      } else {
-        // If not playing, just update the speed state - it will be used on next play
-        console.log('💾 Speed updated for next play:', validSpeed);
-      }
+
+    if (text && isPlaying) {
+      stopSpeaking();
+      setIsPlaying(false);
+      setTimeout(async () => {
+        try {
+          setIsPlaying(true);
+          await speakText({
+            text,
+            lang: ttsLang,
+            rate: validSpeed,
+            voice: getVoiceForTts(),
+          });
+        } catch (error) {
+          console.error('TTS error on speed change:', error);
+        } finally {
+          setIsPlaying(false);
+        }
+      }, 200);
     }
   };
 

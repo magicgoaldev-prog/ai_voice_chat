@@ -1,5 +1,7 @@
 export type EnglishLevel = 'beginner' | 'intermediate' | 'advanced';
 
+export type PracticeLanguage = 'en' | 'he';
+
 export interface AISpeaker {
   id: string;
   name: string;
@@ -14,6 +16,8 @@ export type UserSettings = {
   targetLanguage: string;
   /** Affects AI response style */
   englishLevel: EnglishLevel;
+  /** Practice language: English or Hebrew */
+  practiceLanguage: PracticeLanguage;
   /** Selected AI Speaker ID */
   aiSpeakerId?: string;
 };
@@ -21,9 +25,21 @@ export type UserSettings = {
 const SETTINGS_KEY = 'eng_ai_voice_user_settings';
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
-  targetLanguage: 'ru', // default: Russian
+  targetLanguage: 'ru',
   englishLevel: 'beginner',
+  practiceLanguage: 'en',
 };
+
+/** Hebrew practice always uses this speaker slot (first persona); no multi-speaker UI. */
+export const HEBREW_FIXED_AI_SPEAKER_ID = 'speaker_2';
+
+export function getEffectiveAiSpeakerId(
+  practiceLanguage: PracticeLanguage,
+  storedAiSpeakerId: string | undefined
+): string {
+  if (practiceLanguage === 'he') return HEBREW_FIXED_AI_SPEAKER_ID;
+  return storedAiSpeakerId?.trim() || HEBREW_FIXED_AI_SPEAKER_ID;
+}
 
 export function loadUserSettings(): UserSettings {
   try {
@@ -38,11 +54,15 @@ export function loadUserSettings(): UserSettings {
       parsed?.englishLevel === 'beginner' || parsed?.englishLevel === 'intermediate' || parsed?.englishLevel === 'advanced'
         ? parsed.englishLevel
         : DEFAULT_USER_SETTINGS.englishLevel;
+    const practiceLanguage: PracticeLanguage =
+      parsed?.practiceLanguage === 'he' || parsed?.practiceLanguage === 'en'
+        ? parsed.practiceLanguage
+        : DEFAULT_USER_SETTINGS.practiceLanguage;
     const aiSpeakerId =
       typeof parsed?.aiSpeakerId === 'string' && parsed.aiSpeakerId.trim().length > 0
         ? parsed.aiSpeakerId.trim()
         : undefined;
-    return { targetLanguage, englishLevel, aiSpeakerId };
+    return { targetLanguage, englishLevel, practiceLanguage, aiSpeakerId };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };
   }
