@@ -33,6 +33,7 @@ export default function AudioPlayer({
     unmountedRef.current = false;
 
     if (!audioUrl) {
+      setIsPlaying(false);
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = '';
@@ -40,6 +41,9 @@ export default function AudioPlayer({
       }
       return;
     }
+
+    // Reset UI when swapping src (blob → https, retries, etc.) so we never stick on "pause" icon
+    setIsPlaying(false);
 
     // Tear down previous element
     if (audioRef.current) {
@@ -55,17 +59,34 @@ export default function AudioPlayer({
     const onPause = () => { if (!unmountedRef.current) setIsPlaying(false); };
     const onEnded = () => { if (!unmountedRef.current) setIsPlaying(false); };
     const onError = () => { if (!unmountedRef.current) setIsPlaying(false); };
+    const onEmptied = () => { if (!unmountedRef.current) setIsPlaying(false); };
+    // Some browsers skip `ended` on truncated or odd MP3 metadata; keep UI in sync
+    const onTimeUpdate = () => {
+      if (unmountedRef.current) return;
+      if (audio.ended) {
+        setIsPlaying(false);
+        return;
+      }
+      const d = audio.duration;
+      if (Number.isFinite(d) && d > 0 && audio.currentTime >= d - 0.05) {
+        setIsPlaying(false);
+      }
+    };
 
     audio.addEventListener('play',  onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('error', onError);
+    audio.addEventListener('emptied', onEmptied);
+    audio.addEventListener('timeupdate', onTimeUpdate);
 
     return () => {
       audio.removeEventListener('play',  onPlay);
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
+      audio.removeEventListener('emptied', onEmptied);
+      audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.pause();
       audio.src = '';
       if (audioRef.current === audio) audioRef.current = null;

@@ -9,6 +9,7 @@ import {
   getMicrophonePermissionInstructions 
 } from '../../utils/permissionHelper';
 import { runSpeechDiagnostics, logDiagnostics } from '../../utils/speechDiagnostics';
+import { autoPunctuate } from '../../utils/autoPunctuate';
 
 interface RecordButtonProps {
   conversationId?: string;
@@ -74,9 +75,8 @@ export default function RecordButton({
     const audioBlob = await stopAudioRecording();
     
     // Get final transcript - use accumulated final transcript or current transcript
-    const textToSend = finalTranscriptRef.current || finalTranscript || transcript || '';
-    
-    if (!textToSend.trim()) {
+    const raw = (finalTranscriptRef.current || finalTranscript || transcript || '').trim();
+    if (!raw) {
       // No text recognized, silently ignore
       isProcessingRef.current = false;
       if (audioBlob) {
@@ -84,7 +84,9 @@ export default function RecordButton({
       }
       return;
     }
-    
+
+    const textToSend = autoPunctuate(raw, practiceLanguage);
+
     // Reset accumulated transcript for next recording
     finalTranscriptRef.current = '';
 
@@ -177,7 +179,19 @@ export default function RecordButton({
         console.log('🔄 State reset for next recording');
       }, 100);
     }
-  }, [isRecording, finalTranscript, transcript, stopListening, abortSpeech, stopAudioRecording, onMessageSent, onProcessingChange]);
+  }, [
+    isRecording,
+    finalTranscript,
+    transcript,
+    practiceLanguage,
+    conversationId,
+    messages,
+    stopListening,
+    abortSpeech,
+    stopAudioRecording,
+    onMessageSent,
+    onProcessingChange,
+  ]);
 
   // Store the latest handleStopRecording in ref
   useEffect(() => {

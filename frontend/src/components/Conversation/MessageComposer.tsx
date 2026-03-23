@@ -4,6 +4,7 @@ import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import { getSuggestions, sendTextMessage, sendTextMessageStream, uploadMessageAudio } from '../../services/api';
 import { Message } from '../../types';
 import { requestMicrophoneAccess, getMicrophonePermissionInstructions, requiresHTTPS, isMobile } from '../../utils/permissionHelper';
+import { autoPunctuate } from '../../utils/autoPunctuate';
 
 interface MessageComposerProps {
   practiceLanguage: 'en' | 'he';
@@ -118,43 +119,18 @@ export default function MessageComposer({
     resetSpeech();
   }, [restartNonce]);
 
-  const autoPunctuate = (text: string) => {
-    let t = (text || '').trim();
-    if (!t) return '';
-
-    // Light comma insertion for common conjunctions (best-effort)
-    t = t
-      .replace(/\s+but\s+/gi, ', but ')
-      .replace(/\s+so\s+/gi, ', so ')
-      .replace(/\s+however\s+/gi, ', however ');
-
-    // Avoid double commas
-    t = t.replace(/,\s*,/g, ', ');
-
-    // If already has terminal punctuation, keep it.
-    if (/[.!?]$/.test(t)) return t;
-
-    const lower = t.toLowerCase();
-    const looksLikeQuestion =
-      /^(who|what|why|how|when|where|which)\b/.test(lower) ||
-      /^(is|are|am|do|does|did|can|could|would|should|will|have|has|had)\b/.test(lower) ||
-      /\b(what|why|how|when|where|which)\b/.test(lower);
-
-    return looksLikeQuestion ? `${t}?` : `${t}.`;
-  };
-
   // Sync transcript from speech recognition into the input field and latestTranscriptRef (for send).
   useEffect(() => {
     if (suppressSpeechToInputRef.current) return;
     if (userOverrodeInputRef.current) return;
-    const punctuatedFinal = autoPunctuate(finalTranscript || '');
+    const punctuatedFinal = autoPunctuate(finalTranscript || '', practiceLanguage);
     const display = `${punctuatedFinal}${punctuatedFinal && interimTranscript ? ' ' : ''}${interimTranscript || ''}`.trim() || transcript || '';
     latestTranscriptRef.current = display;
     setInputText(display);
     if (!display && isListening) {
       setInputText('');
     }
-  }, [transcript, finalTranscript, interimTranscript, isListening]);
+  }, [transcript, finalTranscript, interimTranscript, isListening, practiceLanguage]);
 
   const conversationHistory = useMemo(() => {
     return messages
@@ -284,7 +260,10 @@ export default function MessageComposer({
     resetSpeech();
 
     // IMPORTANT: when user edits the input, inputText is the source of truth.
-    const textToSend = autoPunctuate((inputText || '').trim().length > 0 ? inputText : (latestTranscriptRef.current || ''));
+    const textToSend = autoPunctuate(
+      ((inputText || '').trim().length > 0 ? inputText : (latestTranscriptRef.current || '')).trim(),
+      practiceLanguage
+    );
 
     let userAudioUrl: string | undefined;
     if (isAudioRecordingRef.current) {
@@ -392,7 +371,10 @@ export default function MessageComposer({
     abortSpeech();
     resetSpeech();
 
-    const textToSend = autoPunctuate((inputText || '').trim().length > 0 ? inputText : (latestTranscriptRef.current || ''));
+    const textToSend = autoPunctuate(
+      ((inputText || '').trim().length > 0 ? inputText : (latestTranscriptRef.current || '')).trim(),
+      practiceLanguage
+    );
 
     // Kick off audio stop in background
     const audioPromise = isAudioRecordingRef.current ? stopAudioRecording() : Promise.resolve(null);
