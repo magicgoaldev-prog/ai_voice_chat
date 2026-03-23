@@ -49,12 +49,28 @@ export async function correctText(
 
       const isHebrew = practiceLanguage === 'he';
       const prompt = isHebrew
-        ? `Evaluate the user's Hebrew. Only correct if clearly ungrammatical or unnatural. If fine, keep unchanged. The "corrected" field must remain Hebrew. Write the "explanation" field in Russian only (brief grammar/usage notes for the learner).\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`
-        : `You will evaluate the user's English. Do NOT focus on punctuation/capitalization. Only correct if clearly ungrammatical or unnatural. If natural enough, keep unchanged.\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`;
+        ? `Evaluate the user's Hebrew. Only correct if clearly ungrammatical or unnatural. If fine, keep unchanged. The "corrected" field must remain Hebrew. Write the "explanation" field in Russian only (brief grammar/usage notes for the learner).
+
+Do NOT treat missing commas, question marks, or other punctuation as errors unless the omission clearly changes meaning or makes the sentence ambiguous. Ignore punctuation/capitalization quirks typical of speech-to-text.
+
+If the text looks like speech-to-text with wrong homophonic spelling (wrong letters but same sound), fix to standard written Hebrew. Do not use phonetic or non-standard spellings in "corrected".
+
+User text:
+"${text}"
+
+Format as JSON: {"corrected": "...", "explanation": "..."}`
+        : `You will evaluate the user's English. Do NOT focus on punctuation/capitalization. Only correct if clearly ungrammatical or unnatural. If natural enough, keep unchanged.
+
+If the text looks like speech-to-text with an obvious wrong homophone (wrong word spelling but similar sound), fix to standard English spelling. Do not use phonetic spellings in "corrected".
+
+User text:
+"${text}"
+
+Format as JSON: {"corrected": "...", "explanation": "..."}`;
 
       const systemContent = isHebrew
-        ? 'You are a friendly Hebrew coach. Correct major grammar only. If no correction needed, keep the original Hebrew text and explain briefly in Russian only.'
-        : 'You are a strict but friendly English coach. Only correct major grammar or strongly unnatural phrasing. If no meaningful correction is needed, keep the original and say it sounds natural.';
+        ? 'You are a friendly Hebrew coach. Correct major grammar and clear speech-to-text spelling mistakes. Do not nitpick punctuation. If no correction needed, keep the original Hebrew text and explain briefly in Russian only.'
+        : 'You are a strict but friendly English coach. Only correct major grammar or strongly unnatural phrasing, and obvious STT spelling errors. Do not nitpick punctuation. If no meaningful correction is needed, keep the original and say it sounds natural.';
 
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',

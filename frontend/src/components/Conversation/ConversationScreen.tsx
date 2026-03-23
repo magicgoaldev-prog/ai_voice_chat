@@ -23,6 +23,16 @@ function getConversationTitle(conversations: Conversation[], id: string | null):
   return conversations.find((c) => c.id === id)?.title || 'Conversation';
 }
 
+function revokeBlobUrlIfReplaced(prevUrl: string | undefined, nextUrl: string | undefined) {
+  if (!prevUrl || !prevUrl.startsWith('blob:')) return;
+  if (!nextUrl || nextUrl === prevUrl) return;
+  try {
+    URL.revokeObjectURL(prevUrl);
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function ConversationScreen() {
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -241,15 +251,21 @@ export default function ConversationScreen() {
                         ? srv.aiResponseText
                         : local.aiResponseText;
 
+                  const nextAudioUrl =
+                    srv.audioUrl && srv.audioUrl.trim().length > 0 ? srv.audioUrl.trim() : local.audioUrl;
+                  revokeBlobUrlIfReplaced(local.audioUrl, nextAudioUrl);
+                  const nextUserAudioUrl =
+                    srv.userAudioUrl && srv.userAudioUrl.trim().length > 0 ? srv.userAudioUrl : local.userAudioUrl;
+                  revokeBlobUrlIfReplaced(local.userAudioUrl, nextUserAudioUrl);
+
                   return {
                     ...local,
                     ...srv,
                     // Preserve the longer / non-empty AI text (streaming)
                     aiResponseText: mergedAiText,
                     // Prefer server URLs when available
-                    userAudioUrl:
-                      srv.userAudioUrl && srv.userAudioUrl.trim().length > 0 ? srv.userAudioUrl : local.userAudioUrl,
-                    audioUrl: srv.audioUrl && srv.audioUrl.trim().length > 0 ? srv.audioUrl : local.audioUrl,
+                    userAudioUrl: nextUserAudioUrl,
+                    audioUrl: nextAudioUrl,
                   };
                 });
 
@@ -287,7 +303,18 @@ export default function ConversationScreen() {
   };
 
   const handlePatchMessage = (messageId: string, patch: Partial<Message>) => {
-    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, ...patch } : m)));
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        if (patch.audioUrl !== undefined) {
+          revokeBlobUrlIfReplaced(m.audioUrl, patch.audioUrl);
+        }
+        if (patch.userAudioUrl !== undefined) {
+          revokeBlobUrlIfReplaced(m.userAudioUrl, patch.userAudioUrl);
+        }
+        return { ...m, ...patch };
+      })
+    );
   };
 
   const handleRequestFeedback = async (messageId: string) => {
