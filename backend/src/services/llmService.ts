@@ -1,19 +1,25 @@
 // Simple rule-based text correction (free alternative)
 // Can be enhanced with OpenAI API if available
 
-function simpleTextCorrection(text: string): { correctedText: string; explanation: string } {
+function simpleTextCorrection(
+  text: string,
+  practiceLanguage: 'en' | 'he' = 'en'
+): { correctedText: string; explanation: string } {
   // Conservative fallback: don't nitpick punctuation/capitalization.
   const collapsed = text.replace(/\s+/g, ' ').trim();
+  const ru = practiceLanguage === 'he';
   if (collapsed !== text.trim()) {
     return {
       correctedText: collapsed,
-      explanation: 'Removed extra spaces.',
+      explanation: ru ? 'Удалены лишние пробелы.' : 'Removed extra spaces.',
     };
   }
 
   return {
     correctedText: text,
-    explanation: 'Looks natural. No major grammar issues found.',
+    explanation: ru
+      ? 'Звучит естественно. Существенных грамматических ошибок не найдено.'
+      : 'Looks natural. No major grammar issues found.',
   };
 }
 
@@ -30,7 +36,7 @@ export async function correctText(
 
   const timeSinceLastError = Date.now() - lastQuotaErrorTime;
   if (quotaExceeded && timeSinceLastError < QUOTA_ERROR_COOLDOWN) {
-    return simpleTextCorrection(text);
+    return simpleTextCorrection(text, practiceLanguage);
   }
   if (quotaExceeded && timeSinceLastError >= QUOTA_ERROR_COOLDOWN) {
     quotaExceeded = false;
@@ -43,11 +49,11 @@ export async function correctText(
 
       const isHebrew = practiceLanguage === 'he';
       const prompt = isHebrew
-        ? `Evaluate the user's Hebrew. Only correct if clearly ungrammatical or unnatural. If fine, keep unchanged. Reply in Hebrew for explanation.\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`
+        ? `Evaluate the user's Hebrew. Only correct if clearly ungrammatical or unnatural. If fine, keep unchanged. The "corrected" field must remain Hebrew. Write the "explanation" field in Russian only (brief grammar/usage notes for the learner).\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`
         : `You will evaluate the user's English. Do NOT focus on punctuation/capitalization. Only correct if clearly ungrammatical or unnatural. If natural enough, keep unchanged.\n\nUser text:\n"${text}"\n\nFormat as JSON: {"corrected": "...", "explanation": "..."}`;
 
       const systemContent = isHebrew
-        ? 'You are a friendly Hebrew coach. Correct major grammar only. If no correction needed, keep original and explain briefly in Hebrew.'
+        ? 'You are a friendly Hebrew coach. Correct major grammar only. If no correction needed, keep the original Hebrew text and explain briefly in Russian only.'
         : 'You are a strict but friendly English coach. Only correct major grammar or strongly unnatural phrasing. If no meaningful correction is needed, keep the original and say it sounds natural.';
 
       const response = await openai.chat.completions.create({
@@ -64,7 +70,7 @@ export async function correctText(
       quotaExceeded = false;
       return {
         correctedText: result.corrected || text,
-        explanation: result.explanation || (isHebrew ? 'לא נמצאו שגיאות.' : 'No errors found.'),
+        explanation: result.explanation || (isHebrew ? 'Существенных ошибок не найдено.' : 'No errors found.'),
       };
     } catch (error: any) {
       // Check if it's a quota error
@@ -76,12 +82,12 @@ export async function correctText(
         console.error('OpenAI API error, using simple correction:', error?.message || error);
       }
       // Fall back to simple correction
-      return simpleTextCorrection(text);
+      return simpleTextCorrection(text, practiceLanguage);
     }
   }
 
   // Use simple rule-based correction (free)
-  return simpleTextCorrection(text);
+  return simpleTextCorrection(text, practiceLanguage);
 }
 
 // Shared quota error tracking for generateResponse
